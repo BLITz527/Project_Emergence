@@ -29,6 +29,7 @@ public static class JsonDefaults
             Encoder = JavaScriptEncoder.Default,
         };
         options.Converters.Add(new JsonStringEnumConverter<DiagnosticSeverity>());
+        FoundationJsonConverters.AddTo(options);
         return options;
     }
 }

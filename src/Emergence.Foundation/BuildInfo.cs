@@ -19,7 +19,7 @@ public sealed record BuildDetails(
 public static class BuildInfo
 {
     public const string ProductName = "Project Emergence";
-    public const string SemanticVersion = "0.1.0-dev";
+    public static string SemanticVersion => SemanticVersionFor(typeof(BuildInfo).Assembly);
 
     public static BuildDetails Current => ForAssembly(typeof(BuildInfo).Assembly);
 
@@ -32,7 +32,7 @@ public static class BuildInfo
 
         return new BuildDetails(
             ProductName,
-            SemanticVersion,
+            SemanticVersionFor(assembly),
             name.Version?.ToString() ?? "unknown",
             informational,
             Metadata(assembly, "GitCommit"),
@@ -49,4 +49,13 @@ public static class BuildInfo
         assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
             .FirstOrDefault(attribute => string.Equals(attribute.Key, key, StringComparison.Ordinal))?.Value
         ?? "unknown";
+
+    private static string SemanticVersionFor(Assembly assembly)
+    {
+        string informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? assembly.GetName().Version?.ToString()
+            ?? "unknown";
+        int metadata = informational.IndexOf('+');
+        return metadata < 0 ? informational : informational[..metadata];
+    }
 }

@@ -67,11 +67,11 @@ public partial class MainShell : Control
         layout.AddThemeConstantOverride("separation", 14);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.1", 14, accent);
+        Label eyebrow = Label("FOUNDATION / M0.2", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
-        Label subtitle = Label("Milestone 0 — Foundation Shell", 20, muted);
+        Label subtitle = Label("Milestone 0 — Foundational Domain Types", 20, muted);
         layout.AddChild(subtitle);
 
         HSeparator separator = new();
