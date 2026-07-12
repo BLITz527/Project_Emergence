@@ -52,6 +52,41 @@ public sealed record PackageEvidence(
     int PackageFileCount,
     string Detail);
 
+public sealed record BuildOutcome(
+    string Name,
+    string Command,
+    EvidenceStatus Status,
+    string Configuration,
+    string LogPath,
+    int WarningCount,
+    int ErrorCount,
+    string ExpectedGitCommit,
+    string Detail);
+
+public sealed record BuildEvidence(
+    BuildOutcome Restore,
+    BuildOutcome Debug,
+    BuildOutcome Release,
+    BuildOutcome AssemblyInventory);
+
+public sealed record CliCommandEvidence(
+    string Name,
+    string Command,
+    EvidenceStatus Status,
+    string DataPath,
+    string LogPath,
+    bool Success,
+    string Version,
+    string GitCommit,
+    string TargetFramework,
+    string Detail);
+
+public sealed record CliEvidence(
+    CliCommandEvidence Version,
+    CliCommandEvidence Doctor,
+    CliCommandEvidence Phase01SelfTest,
+    CliCommandEvidence Phase02DomainSelfTest);
+
 public sealed record ReviewFileEntry(string Path, long Bytes, string Sha256);
 
 public sealed record ReviewManifest(
@@ -71,6 +106,8 @@ public sealed record ReviewManifest(
     bool ExportTemplatesAvailable,
     string SourceTreeDigest,
     string DesignArchiveDigest,
+    BuildEvidence Build,
+    CliEvidence Cli,
     IReadOnlyList<TestEvidence> Tests,
     AppEvidence App,
     PackageEvidence Package,

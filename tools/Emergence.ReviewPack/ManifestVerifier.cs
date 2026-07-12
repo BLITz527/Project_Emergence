@@ -7,7 +7,7 @@ public static class ManifestIntegrityValidator
     public static VerificationResult Validate(string reviewRoot, ReviewManifest manifest)
     {
         List<string> errors = [];
-        if (manifest.SchemaVersion != 2 || string.IsNullOrWhiteSpace(manifest.Project) || string.IsNullOrWhiteSpace(manifest.Phase))
+        if (manifest.SchemaVersion != 3 || string.IsNullOrWhiteSpace(manifest.Project) || manifest.Phase != "M0 Phase 0.2")
         {
             errors.Add("Manifest schema header is invalid.");
         }
@@ -134,6 +134,20 @@ public static class ReviewPackVerifier
         ValidateSourceListing(reviewRoot, errors);
         ValidatePreflight(reviewRoot, manifest, errors);
         ValidateTests(reviewRoot, manifest, errors);
+
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.2.0-dev", ".NETCoreApp,Version=v10.0");
+        if (!BuildEvidenceValidator.IsPassed(build) || !BuildEvidenceValidator.IsPassed(manifest.Build))
+        {
+            errors.Add("Build evidence is not passed with zero warnings and errors.");
+        }
+        if (!Equivalent(build, manifest.Build)) errors.Add("Manifest build outcomes disagree with current build evidence.");
+
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.2.0-dev", ".NETCoreApp,Version=v10.0");
+        if (!CliEvidenceValidator.IsPassed(cli) || !CliEvidenceValidator.IsPassed(manifest.Cli))
+        {
+            errors.Add("CLI version, doctor, Phase 0.1 self-test, or Phase 0.2 domain self-test evidence is not passed.");
+        }
+        if (!Equivalent(cli, manifest.Cli)) errors.Add("Manifest CLI outcomes disagree with current CLI evidence.");
 
         AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion);
         if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
@@ -311,6 +325,7 @@ public static class ReviewPackVerifier
             "IMPLEMENTATION_REPORT.md",
             "docs/phase-scope.md",
             "docs/known-issues.md",
+            "docs/phase-0.2-traceability.md",
             "docs/design/README.md",
         ];
         foreach (string relative in required)
@@ -354,6 +369,31 @@ public static class ReviewPackVerifier
         && left.TargetFramework == right.TargetFramework
         && left.GitCommit.Equals(right.GitCommit, StringComparison.OrdinalIgnoreCase)
         && left.PackageFileCount == right.PackageFileCount;
+
+    private static bool Equivalent(BuildEvidence left, BuildEvidence right) =>
+        new[] { left.Restore, left.Debug, left.Release, left.AssemblyInventory }
+            .Zip(new[] { right.Restore, right.Debug, right.Release, right.AssemblyInventory })
+            .All(pair => pair.First.Name == pair.Second.Name
+                && pair.First.Command == pair.Second.Command
+                && pair.First.Status == pair.Second.Status
+                && pair.First.Configuration == pair.Second.Configuration
+                && pair.First.LogPath == pair.Second.LogPath
+                && pair.First.WarningCount == pair.Second.WarningCount
+                && pair.First.ErrorCount == pair.Second.ErrorCount
+                && pair.First.ExpectedGitCommit.Equals(pair.Second.ExpectedGitCommit, StringComparison.OrdinalIgnoreCase));
+
+    private static bool Equivalent(CliEvidence left, CliEvidence right) =>
+        new[] { left.Version, left.Doctor, left.Phase01SelfTest, left.Phase02DomainSelfTest }
+            .Zip(new[] { right.Version, right.Doctor, right.Phase01SelfTest, right.Phase02DomainSelfTest })
+            .All(pair => pair.First.Name == pair.Second.Name
+                && pair.First.Command == pair.Second.Command
+                && pair.First.Status == pair.Second.Status
+                && pair.First.DataPath == pair.Second.DataPath
+                && pair.First.LogPath == pair.Second.LogPath
+                && pair.First.Success == pair.Second.Success
+                && pair.First.Version == pair.Second.Version
+                && pair.First.GitCommit.Equals(pair.Second.GitCommit, StringComparison.OrdinalIgnoreCase)
+                && pair.First.TargetFramework == pair.Second.TargetFramework);
 }
 
 public static class ReviewPackJson

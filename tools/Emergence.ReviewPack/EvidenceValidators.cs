@@ -34,7 +34,7 @@ public static class AppEvidenceValidator
             errors.Add("Normal-shell screenshot is missing or empty.");
         }
 
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, requirePackagedLayout: false);
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.2.0-dev", requirePackagedLayout: false);
         errors.AddRange(doctorSummary.Errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
         return new AppEvidence(
@@ -95,7 +95,7 @@ public static class PackageEvidenceValidator
             errors.Add("Packaged smoke marker is missing.");
         }
 
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, requirePackagedLayout: true);
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.2.0-dev", requirePackagedLayout: true);
         errors.AddRange(doctorSummary.Errors);
         int packageFileCount = ValidatePackageManifest(packageRoot, packageManifest, errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
@@ -187,7 +187,7 @@ internal sealed record DoctorSummary(string GitCommit, string TargetFramework, I
 
 internal static class DoctorEvidence
 {
-    public static DoctorSummary Read(string path, string expectedCommit, string expectedFramework, bool requirePackagedLayout)
+    public static DoctorSummary Read(string path, string expectedCommit, string expectedFramework, string expectedVersion, bool requirePackagedLayout)
     {
         List<string> errors = [];
         if (!File.Exists(path))
@@ -212,6 +212,9 @@ internal static class DoctorEvidence
             string framework = build.ValueKind == JsonValueKind.Object && build.TryGetProperty("targetFramework", out JsonElement frameworkElement)
                 ? frameworkElement.GetString() ?? string.Empty
                 : string.Empty;
+            string version = build.ValueKind == JsonValueKind.Object && build.TryGetProperty("semanticVersion", out JsonElement versionElement)
+                ? versionElement.GetString() ?? string.Empty
+                : string.Empty;
             if (!string.Equals(commit, expectedCommit, StringComparison.OrdinalIgnoreCase))
             {
                 errors.Add($"Doctor Git commit '{commit}' does not match reviewed commit '{expectedCommit}'.");
@@ -219,6 +222,10 @@ internal static class DoctorEvidence
             if (!string.Equals(framework, expectedFramework, StringComparison.Ordinal))
             {
                 errors.Add($"Doctor target framework '{framework}' does not match '{expectedFramework}'.");
+            }
+            if (!string.Equals(version, expectedVersion, StringComparison.Ordinal))
+            {
+                errors.Add($"Doctor semantic version '{version}' does not match '{expectedVersion}'.");
             }
 
             if (requirePackagedLayout)
@@ -234,6 +241,20 @@ internal static class DoctorEvidence
                 {
                     errors.Add("Doctor JSON does not report packaged runtime layout.");
                 }
+            }
+            string[] requiredChecks = ["process.architecture", "runtime.dotnet", "runtime.mode", "path.temp", "path.localAppData", "runtime.layout"];
+            if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
+            {
+                errors.Add("Doctor JSON has no structured checks array.");
+            }
+            else
+            {
+                JsonElement[] checkArray = allChecks.EnumerateArray().ToArray();
+                foreach (string id in requiredChecks)
+                {
+                    if (!checkArray.Any(check => check.TryGetProperty("id", out JsonElement checkId) && checkId.GetString() == id)) errors.Add($"Doctor JSON is missing required check '{id}'.");
+                }
+                if (checkArray.Any(check => check.TryGetProperty("severity", out JsonElement severity) && severity.GetString() == "Failure")) errors.Add("Doctor JSON contains a failed structured check.");
             }
             return new DoctorSummary(commit, framework, errors);
         }

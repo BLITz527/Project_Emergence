@@ -98,6 +98,69 @@ public sealed class ArchitectureTests
         }
     }
 
+    [Fact]
+    public void FoundationDomainCodeContainsNoNondeterministicInputs()
+    {
+        string[] directories = ["Identifiers", "Time", "Quantities", "Hashing", "Versioning", "Configuration"];
+        string[] prohibited = ["Guid.NewGuid", "DateTime.Now", "DateTime.UtcNow", "Random(", "RandomNumberGenerator", "Time.GetTicks", "Godot"];
+        foreach (string directory in directories)
+        {
+            foreach (string file in Directory.GetFiles(At($"src/Emergence.Foundation/{directory}"), "*.cs", SearchOption.AllDirectories))
+            {
+                string source = File.ReadAllText(file);
+                Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
+            }
+        }
+    }
+
+    [Fact]
+    public void DomainTypesExistOnlyInFoundation()
+    {
+        string[] typeNames = ["StableId128", "SimulationTick", "MatterAmount", "CanonicalHashWriter", "ImmutableConfiguration", "OperationResult"];
+        foreach (string file in Directory.GetFiles(At("src"), "*.cs", SearchOption.AllDirectories).Where(path => !path.Contains("Emergence.Foundation", StringComparison.Ordinal)))
+        {
+            string source = File.ReadAllText(file);
+            Assert.All(typeNames, type => Assert.DoesNotContain($"class {type}", source, StringComparison.Ordinal));
+            Assert.All(typeNames, type => Assert.DoesNotContain($"struct {type}", source, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void ModelStillContainsOnlyItsMarker()
+    {
+        string[] files = Directory.GetFiles(At("src/Emergence.Model"), "*.cs", SearchOption.TopDirectoryOnly);
+        Assert.Single(files);
+        Assert.Contains("AssemblyMarker", File.ReadAllText(files[0]), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NoGlobalMutableIdAllocatorExists()
+    {
+        foreach (string file in Directory.GetFiles(At("src"), "*.cs", SearchOption.AllDirectories))
+        {
+            string source = File.ReadAllText(file);
+            Assert.DoesNotContain("IdAllocator", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("static CheckedSequenceCounter", source, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void ConfigurationHasNoCodeExecutionMechanism()
+    {
+        string source = string.Join("\n", Directory.GetFiles(At("src/Emergence.Foundation/Configuration"), "*.cs").Select(File.ReadAllText));
+        string[] prohibited = ["System.Reflection", "System.Linq.Expressions", "CSharpScript", "Assembly.Load", "Delegate", "dynamic"];
+        Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TestAndReviewScriptsCoverEveryTestProject()
+    {
+        string[] testProjects = Directory.GetFiles(At("tests"), "*.csproj", SearchOption.AllDirectories).Select(Path.GetFileNameWithoutExtension).OrderBy(static name => name, StringComparer.Ordinal).ToArray()!;
+        string testScript = File.ReadAllText(At("eng/test.ps1"));
+        string reviewSource = File.ReadAllText(At("tools/Emergence.ReviewPack/ReviewPackApplication.cs"));
+        Assert.All(testProjects, project => { Assert.Contains(project, testScript, StringComparison.Ordinal); Assert.Contains(project, reviewSource, StringComparison.Ordinal); });
+    }
+
     private static IEnumerable<string> ProjectReferences(string relativeProject)
     {
         XDocument document = XDocument.Load(At(relativeProject));

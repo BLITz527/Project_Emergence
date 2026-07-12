@@ -25,6 +25,7 @@ public static class CliApplication
             "version" => Task.FromResult(Version(args, output, error)),
             "doctor" => Task.FromResult(Doctor(args, output, error)),
             "self-test" => Task.FromResult(SelfTest(args, output, error)),
+            "domain-self-test" => Task.FromResult(DomainSelfTest(args, output, error)),
             _ => Task.FromResult(Invalid(args[0], error)),
         };
     }
@@ -69,6 +70,17 @@ public static class CliApplication
         }
 
         FoundationSelfTestReport report = FoundationSelfTest.Run();
+        return WriteReport(report, path, output, report.Success);
+    }
+
+    private static int DomainSelfTest(string[] args, TextWriter output, TextWriter error)
+    {
+        if (!TryJsonPath(args, out string? path, out string? message))
+        {
+            return UsageError(message!, error);
+        }
+
+        FoundationDomainSelfTestReport report = FoundationDomainSelfTest.Run();
         return WriteReport(report, path, output, report.Success);
     }
 
@@ -122,6 +134,6 @@ public static class CliApplication
     private static void WriteHelp(TextWriter writer)
     {
         writer.WriteLine("Project Emergence foundation CLI");
-        writer.WriteLine("Usage: emergence <version|doctor|self-test> [--json <path>]");
+        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test> [--json <path>]");
     }
 }

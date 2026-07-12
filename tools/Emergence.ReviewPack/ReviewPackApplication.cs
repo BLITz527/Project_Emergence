@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Text;
 using System.Text.Json;
 
@@ -16,6 +18,10 @@ public static class ReviewPackApplication
 
     public static Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
+        if (args.Length == 3 && args[0] == "inventory")
+        {
+            return Task.FromResult(WriteAssemblyInventory(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), output, error));
+        }
         if (args.Length == 2 && args[0] == "verify")
         {
             return Task.FromResult(Verify(Path.GetFullPath(args[1]), output, error));
@@ -24,7 +30,7 @@ public static class ReviewPackApplication
         {
             return Task.FromResult(Create(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), output, error));
         }
-        error.WriteLine("Usage: Emergence.ReviewPack create <repository-root> <output-root> | verify <manifest-path>");
+        error.WriteLine("Usage: Emergence.ReviewPack create <repository-root> <output-root> | verify <manifest-path> | inventory <repository-root> <output-json>");
         return Task.FromResult(2);
     }
 
@@ -52,7 +58,7 @@ public static class ReviewPackApplication
         }
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.1R_{timestamp}");
+        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.2_{timestamp}");
         Directory.CreateDirectory(reviewRoot);
         foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "app", "package", "docs" })
         {
@@ -96,6 +102,8 @@ public static class ReviewPackApplication
         IReadOnlyList<TestEvidence> tests = ReadTests(reviewRoot);
         AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion);
         PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0");
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.2.0-dev", ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.2.0-dev", ".NETCoreApp,Version=v10.0");
         string designDigest = ReadDesignDigest(repositoryRoot);
         string sourceDigest = EvidencePaths.DigestTree(Path.Combine(reviewRoot, "source"));
         List<string> warnings = [];
@@ -115,15 +123,17 @@ public static class ReviewPackApplication
         {
             warnings.Add($"Package evidence is not passed: {package.Detail}");
         }
+        if (!BuildEvidenceValidator.IsPassed(build)) warnings.Add("Required build evidence is not passed.");
+        if (!CliEvidenceValidator.IsPassed(cli)) warnings.Add("Required CLI evidence is not passed.");
         if (string.IsNullOrWhiteSpace(designDigest))
         {
             warnings.Add("Imported design digest is missing.");
         }
 
         ReviewManifest seed = new(
-            2,
+            3,
             "Project Emergence",
-            "M0 Phase 0.1R",
+            "M0 Phase 0.2",
             DateTime.UtcNow,
             repositoryRoot,
             reviewRoot,
@@ -137,6 +147,8 @@ public static class ReviewPackApplication
             templates,
             sourceDigest,
             designDigest,
+            build,
+            cli,
             tests,
             app,
             package,
@@ -211,7 +223,7 @@ public static class ReviewPackApplication
                 Path.Combine(repositoryRoot, "docs", directory),
                 Path.Combine(reviewRoot, "docs", directory));
         }
-        foreach (string file in new[] { "phase-scope.md", "known-issues.md" })
+        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md" })
         {
             string source = Path.Combine(repositoryRoot, "docs", file);
             string target = Path.Combine(reviewRoot, "docs", file);
@@ -278,11 +290,66 @@ public static class ReviewPackApplication
     }
 
     private static string BuildReadme(ReviewManifest manifest) =>
-        $"# Project Emergence M0 Phase 0.1R Review Pack\n\n" +
+        $"# Project Emergence M0 Phase 0.2 Review Pack\n\n" +
         $"Created UTC: {manifest.CreatedUtc:O}\n\n" +
         $"Reviewed commit: `{manifest.GitCommit}` on `{manifest.GitBranch}`; clean={manifest.GitClean}.\n\n" +
         $"Design archive SHA-256: `{manifest.DesignArchiveDigest}`.\n\n" +
         "This self-contained directory contains the exact reviewed source snapshot, normalized single-run tests and coverage, build/CLI/App/package evidence, required documentation, a structured manifest, and a complete implementation report. Successful creation requires hardened exact-file and semantic verification.\n";
+
+    private static int WriteAssemblyInventory(string repositoryRoot, string outputPath, TextWriter output, TextWriter error)
+    {
+        string[] projectRoots = [Path.Combine(repositoryRoot, "src"), Path.Combine(repositoryRoot, "tools")];
+        List<AssemblyInventoryEntry> entries = [];
+        foreach (string configuration in new[] { "Debug", "Release" })
+        {
+            foreach (string root in projectRoots.Where(Directory.Exists))
+            {
+                foreach (string path in Directory.EnumerateFiles(root, "Emergence.*.dll", SearchOption.AllDirectories)
+                             .Where(path =>
+                                 (path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}{configuration}{Path.DirectorySeparatorChar}net10.0{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                                  && string.Equals(Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(path))))!), Path.GetFileNameWithoutExtension(path), StringComparison.OrdinalIgnoreCase))
+                                 || (Path.GetFileName(path).Equals("Emergence.App.dll", StringComparison.OrdinalIgnoreCase)
+                                     && path.Contains($"{Path.DirectorySeparatorChar}.godot{Path.DirectorySeparatorChar}mono{Path.DirectorySeparatorChar}temp{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}{configuration}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
+                             .OrderBy(static path => path, StringComparer.Ordinal))
+                {
+                    try
+                    {
+                        string directory = Path.GetDirectoryName(path)!;
+                        using InventoryLoadContext context = new(directory);
+                        Assembly assembly = context.LoadFromAssemblyPath(path);
+                        IList<CustomAttributeData> attributes = assembly.GetCustomAttributesData();
+                        string informational = AttributeValue(attributes, "System.Reflection.AssemblyInformationalVersionAttribute");
+                        string framework = AttributeValue(attributes, "System.Runtime.Versioning.TargetFrameworkAttribute");
+                        string commit = attributes.Where(attribute => attribute.AttributeType.FullName == "System.Reflection.AssemblyMetadataAttribute")
+                            .FirstOrDefault(attribute => attribute.ConstructorArguments.Count == 2 && string.Equals(attribute.ConstructorArguments[0].Value as string, "GitCommit", StringComparison.Ordinal))?.ConstructorArguments[1].Value as string ?? "unknown";
+                        entries.Add(new(Path.GetFileNameWithoutExtension(path), configuration, Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'), assembly.GetName().Version?.ToString() ?? "unknown", informational, commit, framework));
+                    }
+                    catch (Exception exception)
+                    {
+                        error.WriteLine($"Could not inventory {path}: {exception.Message}");
+                        return 1;
+                    }
+                }
+            }
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        File.WriteAllText(outputPath, JsonSerializer.Serialize(entries, ReviewPackJson.Options) + Environment.NewLine, new UTF8Encoding(false));
+        output.WriteLine($"Inventoried {entries.Count} assemblies: {outputPath}");
+        return 0;
+    }
+
+    private static string AttributeValue(IList<CustomAttributeData> attributes, string fullName) =>
+        attributes.FirstOrDefault(attribute => attribute.AttributeType.FullName == fullName)?.ConstructorArguments.FirstOrDefault().Value as string ?? "unknown";
+
+    private sealed class InventoryLoadContext(string directory) : AssemblyLoadContext(isCollectible: true), IDisposable
+    {
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            string candidate = Path.Combine(directory, assemblyName.Name + ".dll");
+            return File.Exists(candidate) ? LoadFromAssemblyPath(candidate) : null;
+        }
+        public void Dispose() => Unload();
+    }
 
     private static (IReadOnlyList<string> Created, IReadOnlyList<string> Modified) CorrectionFiles(string repositoryRoot)
     {

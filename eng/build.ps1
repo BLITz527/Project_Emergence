@@ -28,7 +28,7 @@ foreach ($item in $configurations) {
     Invoke-LoggedCommand (Join-Path $logs ("build-{0}.log" -f $item.ToLowerInvariant())) { dotnet build $solution --configuration $item --no-restore ("-p:GitCommit={0}" -f $gitCommit) }
 }
 
-Get-ChildItem -LiteralPath $root -Filter 'Emergence.*.dll' -Recurse -File |
-    Where-Object { $_.FullName -match '\\bin\\' } |
-    Select-Object FullName, Length, @{ Name = 'Sha256'; Expression = { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } } |
-    ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $logs 'assemblies.json') -Encoding utf8
+$inventoryTool = Join-Path $root 'tools\Emergence.ReviewPack\Emergence.ReviewPack.csproj'
+Invoke-LoggedCommand (Join-Path $logs 'assembly-inventory.log') {
+    dotnet run --project $inventoryTool --configuration Release --no-build -- inventory $root (Join-Path $logs 'assemblies.json')
+}
