@@ -16,7 +16,7 @@
     <GitCommit Condition="'$(GitCommit)' == ''">unknown</GitCommit>
     <InformationalVersion>0.1.0-dev+$(GitCommit)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <RepositoryUrl>https://example.invalid/ProjectEmergence</RepositoryUrl>
+    <RepositoryUrl>https://github.com/BLITz527/Project_Emergence</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>false</PublishRepositoryUrl>
   </PropertyGroup>

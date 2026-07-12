@@ -14,6 +14,7 @@
     <Project Path="tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.csproj" />
     <Project Path="tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.csproj" />
     <Project Path="tests/Emergence.Cli.IntegrationTests/Emergence.Cli.IntegrationTests.csproj" />
+    <Project Path="tests/Emergence.ReviewPack.Tests/Emergence.ReviewPack.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Emergence.ReviewPack/Emergence.ReviewPack.csproj" />

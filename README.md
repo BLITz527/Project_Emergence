@@ -10,7 +10,7 @@ Project Emergence is in **Milestone 0, Phase 0.1**: repository, toolchain, diagn
 - Godot 4.7 stable .NET editor and matching Windows export templates for App runtime and packaging checks
 - Windows PowerShell 5.1 or PowerShell 7+
 
-The design baseline is expected at `design-input/Project_Emergence_Design_v1.0.zip`. It was not supplied for this implementation; see `docs/design/README.md`.
+The authoritative design baseline is imported under `docs/design/v1.0/`. Its raw external source remains ignored at `design-input/Project_Emergence_Design_v1.0.zip`; see `docs/design/README.md` for the verified SHA-256.
 
 ## Build and test
 

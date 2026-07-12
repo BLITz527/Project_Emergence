@@ -1,0 +1,143 @@
+{
+  "archive_name": "Project Emergence Version 1.0 Design Archive",
+  "archive_version": "1.0",
+  "created_date": "2026-07-12",
+  "status": "complete implementation-authoritative design baseline",
+  "creative_director": "Timothy Nitz",
+  "file_count_excluding_manifest": 25,
+  "design_pass_count": 17,
+  "archive_edition_note": "Consolidated authoritative archive edition; not a verbatim chat transcript.",
+  "toolchain_baseline": {
+    "godot": "4.7 stable .NET edition",
+    "dotnet_sdk_preferred": "10.0.301",
+    "implementation_preflight_required": true
+  },
+  "files": [
+    {
+      "path": "00_Design_Pass_00_Project_Constitution.md",
+      "size_bytes": 8605,
+      "sha256": "49EE137721BD8C9A5C0B64BB83F7883110FCF0814740F1303B676A9D9F0C8054"
+    },
+    {
+      "path": "01_Design_Pass_01_Space_Time_Environment.md",
+      "size_bytes": 5581,
+      "sha256": "844BAB63BEA330F35CDA9F6B91FDF6C539FA4FCB1CCBE6B297B0EAE28079D041"
+    },
+    {
+      "path": "02_Design_Pass_02_Minimal_Cell.md",
+      "size_bytes": 5419,
+      "sha256": "14221C606F8A18FD95B5BD29CFCD95607F64F1C662D9CB92D92AE91B8FA6A8BB"
+    },
+    {
+      "path": "03_Design_Pass_03_Genome_Heredity_Mutation_Regulation.md",
+      "size_bytes": 5525,
+      "sha256": "F2022152AEC27D0D7E48A54DC1665AC38523B9F016AEC778E1D98B1C4AEA2C5F"
+    },
+    {
+      "path": "04_Design_Pass_04_Movement_Sensing_Action.md",
+      "size_bytes": 4806,
+      "sha256": "592833A3C42371026BE92D5F4FC8AB01D3A56F18314E1F32BD0BEF52DE6B9916"
+    },
+    {
+      "path": "05_Design_Pass_05_Competition_Predation_Defense.md",
+      "size_bytes": 4533,
+      "sha256": "35E827138A21E2BA1AE835B6426B0B6CCAEB933A583A4DA9128DD8A2201D1772"
+    },
+    {
+      "path": "06_Design_Pass_06_Cooperation_Communication_Exploitation.md",
+      "size_bytes": 5786,
+      "sha256": "0FA8C79EE820AE9760FD68A1B7DADE8C46B724099FD63D0849BFFC4473E2FFD4"
+    },
+    {
+      "path": "07_Design_Pass_07_Ecology_Population_Dynamics.md",
+      "size_bytes": 4832,
+      "sha256": "8C7BF3B663482405CC9571407902CE2B60C00A468AAE6717EB700D63DA9C395D"
+    },
+    {
+      "path": "08_Design_Pass_08_Colonies_Collective_Organization.md",
+      "size_bytes": 4102,
+      "sha256": "936CECED1C51EF369A07206A3AD26379FA411AE08D469E836C123D5EB41E6DAE"
+    },
+    {
+      "path": "09_Design_Pass_09_Major_Evolutionary_Transitions.md",
+      "size_bytes": 4589,
+      "sha256": "1171EBC1DCA40E0E7E2223E84E1D7BF13FFBC9047418507F2C4B0688815C9ACE"
+    },
+    {
+      "path": "10_Design_Pass_10_Advanced_Behavior_Learning.md",
+      "size_bytes": 5244,
+      "sha256": "C411A1A7AB64FDC1739CA62AF435B04212045C5A9016793085C02DB7A7680DA5"
+    },
+    {
+      "path": "11_Design_Pass_11_Connected_Regions_Geography.md",
+      "size_bytes": 4432,
+      "sha256": "85F0183833720421054CDAD0916EF7EE7B7D1E518BB03FA3941FFC44086B127E"
+    },
+    {
+      "path": "12_Design_Pass_12_Player_Experience_Scientific_Tools.md",
+      "size_bytes": 4715,
+      "sha256": "166004299C1A338D4E737CDD9B1238BD9B1BF9DF85E72F74028E19C9769CD9F1"
+    },
+    {
+      "path": "13_Design_Pass_13_Visual_Language.md",
+      "size_bytes": 4671,
+      "sha256": "63CA3E6E15698E326BF5C00DF26ABC92E4160DE8807E8CE619B11FFD5EF2C2F4"
+    },
+    {
+      "path": "14_Design_Pass_14_Long_Time_Persistence.md",
+      "size_bytes": 5104,
+      "sha256": "437B01EB318D9AD5E82A4C94F21A004127D69EF6DD9A04E43628BAB8D13C9D8D"
+    },
+    {
+      "path": "15_Design_Pass_15_Technical_Architecture.md",
+      "size_bytes": 5544,
+      "sha256": "445F059EC6C445AB0E3BF07EF2EBD37DC4AC3D07944F740453B67A57701C8BFF"
+    },
+    {
+      "path": "16_Design_Pass_16_Implementation_Roadmap.md",
+      "size_bytes": 6959,
+      "sha256": "52A534A0E5C7EA5CE38CF1B7A691932FD24AA1AB1228132C2DC140004D1225EF"
+    },
+    {
+      "path": "DEFERRED_DECISION_REGISTER.md",
+      "size_bytes": 3938,
+      "sha256": "565E9EA77158CA2E2328D5FA9B059A5EE0DB22E7CA8C8BB6EBC089F27AE3E3F7"
+    },
+    {
+      "path": "LOCKED_DECISION_REGISTER.md",
+      "size_bytes": 7310,
+      "sha256": "D8A359126442F4EDDDA81D8FF61D0E754EE422F83B1A1439A934D0747B374853"
+    },
+    {
+      "path": "M0_PHASE_0.1_CODEX_PROMPT.txt",
+      "size_bytes": 20911,
+      "sha256": "12318AF74BC8B4D42B8ECF9B3EB4B1D063C869AE47BD553FFC4718EB01B37A7C"
+    },
+    {
+      "path": "MASTER_DESIGN_INDEX.md",
+      "size_bytes": 2626,
+      "sha256": "C95E5A7AD88E1B01A7C6150D47378F0623EB3B016721478846679FDB680F89E0"
+    },
+    {
+      "path": "PROJECT_GLOSSARY.md",
+      "size_bytes": 4882,
+      "sha256": "49BDAE2157DEB1B433338D5308C9AA23FD3BA700AB319B2F66CD0228591B80D1"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 2486,
+      "sha256": "CD3E2BB54129F04C1A4FCCAC39A1E6AB67B7AC60F4370010B914956652EC0CD3"
+    },
+    {
+      "path": "REQUIREMENT_TRACEABILITY_SEED.csv",
+      "size_bytes": 2676,
+      "sha256": "C4EBD82390E92E1F8C34B71C9E33A69642D8069364F9400A2A9A2B048B6B7EBC"
+    },
+    {
+      "path": "TOOLCHAIN_BASELINE_SOURCES.md",
+      "size_bytes": 1051,
+      "sha256": "E15921E1A77CBFC3DC86AE6C6E3C2FD4730E3B96E4A3BD996433FE3A1EC7DC9B"
+    }
+  ],
+  "validation_errors": []
+}

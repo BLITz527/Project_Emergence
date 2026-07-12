@@ -1,0 +1,21 @@
+Requirement_ID,Requirement,Design_Source,Planned_Implementation,Automated_Evidence,Human_or_Review_Evidence
+PE-0001,Behavior before labels,Pass 0,All,Architecture tests; analytics-disabled equivalence,Review analytics boundaries
+PE-0002,Matter and energy conservation,"Passes 1,2,5,6",M1-M7,Property tests; conservation audits; golden scenarios,Inspect budgets and transfer overlays
+PE-0003,Local information only,Pass 4,M3-M4,Sensor-access tests; no global query dependency,Behavior trace review
+PE-0004,Mutation nondirected,Pass 3,M3,Mutation RNG and no-fitness-access tests,Parent-child mutation inspection
+PE-0005,No hidden carrying capacity,Pass 7,M7,Population growth scenarios; code dependency review,"Observe overshoot, plateau, collapse"
+PE-0006,Predation transfers actual biomass,Pass 5,M5,Biomass ledger and partial feeding tests,Predation replay
+PE-0007,Signals physical and receiver-dependent,Pass 6,M6,"Field, cost, decay, response tests",Signal inspector
+PE-0008,Colony has no central controller,Pass 8,M8,Dependency and authority tests,Colony behavior and bond view
+PE-0009,Multicellularity based on lifecycle and individuality,Pass 9,M9,"Propagule, development, conflict tests",Individuality evidence review
+PE-0010,Learning uses internal physiological consequence,Pass 10,M10,No external reward dependency; control comparisons,Learning trace and reversal experiment
+PE-0011,Migration uses explicit physical connections,Pass 11,M11,Boundary crossing and conservation tests,Follow migrant across regions
+PE-0012,Intervention permanently recorded,Pass 12,M13,Command and provenance tests,Branch ledger inspection
+PE-0013,Normal view hides grid,Pass 13,M1 onward,Screenshot regression; raw-vs-natural test,Human visual QA
+PE-0014,Rendering does not affect biology,"Passes 13,15",M0 onward,Frame-rate metamorphic tests,Performance mode comparison
+PE-0015,Save/load equals uninterrupted deterministic run,"Passes 14,15",Every authoritative milestone,State digest equivalence,Manual reopen check
+PE-0016,Old worlds bind to versioned rulesets,Pass 14,M0.5 onward,Manifest and migration tests,World-library compatibility review
+PE-0017,Godot does not own biology,Pass 15,M0.1 onward,Dependency tests; headless equivalence,Packaged/headless comparison
+PE-0018,No node per cell,Pass 15,M2 onward,Architecture inspection; rendering benchmark,Large population view
+PE-0019,Contested outcomes are fair and deterministic,Pass 15,M1 onward,Permutation and parallel-reference tests,Controlled competition experiment
+PE-0020,Reduced fidelity requires contract and validation,Pass 14,M15,Differential harness and error envelopes,Fidelity status inspection

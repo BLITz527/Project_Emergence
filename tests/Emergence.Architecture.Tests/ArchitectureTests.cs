@@ -20,6 +20,7 @@ public sealed class ArchitectureTests
         "tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.csproj",
         "tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.csproj",
         "tests/Emergence.Cli.IntegrationTests/Emergence.Cli.IntegrationTests.csproj",
+        "tests/Emergence.ReviewPack.Tests/Emergence.ReviewPack.Tests.csproj",
         "tools/Emergence.ReviewPack/Emergence.ReviewPack.csproj",
     ];
 

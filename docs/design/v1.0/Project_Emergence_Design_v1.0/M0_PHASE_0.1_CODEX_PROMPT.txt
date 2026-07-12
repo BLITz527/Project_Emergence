@@ -1,0 +1,617 @@
+PROJECT EMERGENCE
+MILESTONE 0 — PHASE 0.1
+Repository, Toolchain, Headless CLI, Godot .NET Application Shell, Tests, Windows Packaging, Diagnostics, and Review-Pack Foundation
+
+ROLE
+You are the implementation engineer for Project Emergence. Implement this phase directly in the repository. Do not redesign the approved project. Do not add biological simulation features. Work carefully, run every required verification you can actually run, and report failures honestly.
+
+AUTHORITATIVE DESIGN BASELINE
+The Version 1.0 Project Emergence design archive is authoritative. Before editing, look for:
+
+C:\Dev\Projects\ProjectEmergence\design-input\Project_Emergence_Design_v1.0.zip
+
+If present:
+1. Verify that it is readable.
+2. Extract a working documentation copy into:
+   docs\design\v1.0\
+3. Preserve filenames and archive manifest.
+4. Do not alter the source ZIP.
+5. Record the source ZIP SHA-256 in docs\design\v1.0\IMPORTED_ARCHIVE_SHA256.txt.
+
+If the ZIP is absent:
+- Do not reconstruct or invent the design archive.
+- Create docs\design\README.md stating that the external Version 1.0 design archive was not supplied.
+- Continue only with the requirements in this prompt.
+- Report the missing archive as a nonblocking documentation-input limitation for Phase 0.1.
+
+WORKING ROOT
+Use this repository root:
+
+C:\Dev\Projects\ProjectEmergence
+
+Do not create the project under Program Files, Windows, a synced consumer cloud folder, or a protected system directory.
+Do not write outside the repository except:
+- normal user-local application data used by a packaged smoke test;
+- the explicit review-pack output directory;
+- temporary build directories created by the toolchain.
+
+REVIEW-PACK OUTPUT ROOT
+Use:
+
+C:\Dev\ReviewPacks\ProjectEmergence
+
+Create a timestamped Phase 0.1 review directory beneath it. Do not place the review pack inside the repository. Do not create nested ZIP archives.
+
+CURRENT TOOLCHAIN BASELINE FOR THIS PROMPT
+The intended starting baseline is:
+- Godot 4.7 stable, .NET-enabled Windows x86_64 editor/export templates.
+- .NET 10 LTS SDK, preferably SDK 10.0.301.
+
+Do not use Godot 4.8 development builds or Godot 4.7.1 release candidates for the accepted Phase 0.1 baseline.
+Do not silently change the baseline to a newer engine, preview SDK, or different language.
+
+PRE-FLIGHT REQUIREMENTS
+Before generating the project:
+1. Record:
+   - Windows version;
+   - CPU architecture;
+   - `dotnet --info`;
+   - `git --version`;
+   - Godot .NET executable path and `--version`;
+   - whether Windows export templates are available;
+   - PowerShell version.
+2. Verify that the selected Godot executable is the .NET-enabled edition.
+3. Verify that the .NET SDK can compile a minimal C# project.
+4. Determine the target framework that Godot 4.7 generates and successfully builds on this machine.
+5. Prefer a coherent .NET 10 target where Godot 4.7 builds and exports it correctly.
+6. If the Godot project must target an earlier supported framework, keep all shared projects compatible with the Godot application, document the reason in an architecture decision record, and do not use preview frameworks.
+7. Create or update `global.json` to lock the selected installed SDK. Do not use a floating preview SDK.
+8. If a required dependency is missing, do not download or install software silently. Report the exact blocker and continue with portions that can be completed without falsifying success.
+
+PHASE OBJECTIVE
+Create a clean, durable, deterministic-ready repository and a minimal vertical toolchain proving that:
+- the headless .NET side builds and runs;
+- the Godot .NET desktop shell builds and launches;
+- dependency boundaries are enforceable;
+- automated tests run;
+- a Windows package can be produced and smoke-tested when export prerequisites are available;
+- diagnostics are available from source and package;
+- Git evidence and a self-contained review pack can be generated;
+- the repository is ready for Phase 0.2 without containing biological simulation.
+
+THIS PHASE MUST NOT IMPLEMENT
+Do not implement:
+- cells;
+- fields;
+- regions;
+- world simulation state;
+- logical biological time;
+- deterministic biological RNG;
+- genome systems;
+- metabolism;
+- movement;
+- ecology;
+- persistence of biological worlds;
+- adaptive fidelity;
+- neural or learning systems;
+- native plugins;
+- GPU compute simulation;
+- remote telemetry;
+- online services;
+- mod loading;
+- arbitrary script execution;
+- one Godot node per future cell;
+- placeholder “fake life” animations.
+
+A simple nonbiological ambient background in the shell is acceptable only if clearly decorative and isolated from future simulation architecture. A static clean shell is preferred.
+
+REPOSITORY AND SOLUTION STRUCTURE
+Create a solution with this intended structure:
+
+src\
+  Emergence.Foundation\
+  Emergence.Model\
+  Emergence.Simulation\
+  Emergence.Analytics\
+  Emergence.History\
+  Emergence.Persistence\
+  Emergence.Presentation.Contracts\
+  Emergence.Cli\
+  Emergence.App\
+
+tests\
+  Emergence.Foundation.Tests\
+  Emergence.Architecture.Tests\
+  Emergence.Cli.IntegrationTests\
+
+tools\
+  Emergence.ReviewPack\
+
+eng\
+docs\
+rulesets\
+artifacts\  (gitignored local output only, if needed)
+
+Create only minimal assembly markers, version/build metadata types, and contracts required to prove compilation and boundaries. Do not populate future biological projects with speculative domain models.
+
+DEPENDENCY RULES
+Enforce these project-reference rules:
+
+- Emergence.Foundation references no Project Emergence assembly and no Godot assembly.
+- Emergence.Model may reference Foundation only.
+- Emergence.Simulation may reference Foundation and Model only.
+- Emergence.Analytics may reference Foundation and Model. It must not reference the Godot app.
+- Emergence.History may reference Foundation and Model. Keep it independent of Godot.
+- Emergence.Persistence may reference Foundation, Model, and History only if genuinely required by the minimal shell; otherwise keep references even narrower.
+- Emergence.Presentation.Contracts may reference Foundation only.
+- Emergence.Cli may reference Foundation and only the minimal additional projects required for Phase 0.1.
+- Emergence.App may reference Foundation and Presentation.Contracts.
+- No non-App project may reference GodotSharp or any Godot package.
+- No core project may reference Emergence.App.
+- No project may introduce a global mutable simulation singleton.
+
+Create automated architecture tests that inspect project references and fail when these boundaries are violated.
+
+PROJECT-WIDE BUILD SETTINGS
+Create restrained, explicit repository configuration:
+- nullable reference types enabled;
+- implicit usings consistently configured;
+- deterministic builds enabled;
+- warnings treated as errors for authored C# code;
+- no preview language features;
+- invariant or explicitly controlled culture in diagnostics and machine-readable outputs;
+- SourceLink or repository metadata only if it can be configured cleanly without unnecessary complexity;
+- central package management for test/tool packages;
+- repository-level `.editorconfig`;
+- `.gitattributes` with sensible text normalization;
+- `.gitignore` covering .NET, Godot, IDE, package, review, and temporary artifacts;
+- `Directory.Build.props`;
+- `Directory.Packages.props`;
+- `global.json`;
+- solution file;
+- clear build version metadata.
+
+Do not add large dependency frameworks. Prefer the BCL and SDK tooling.
+
+VERSION INFORMATION
+Create a minimal immutable build-information contract that can report:
+- product name;
+- semantic development version for this phase;
+- assembly version;
+- informational version;
+- Git commit when supplied by the build;
+- build configuration;
+- target framework;
+- runtime version;
+- operating system;
+- architecture;
+- Godot version in the App.
+
+This is application/build metadata only. Do not prematurely implement the stable biological version registry reserved for Phase 0.2.
+
+HEADLESS CLI
+Create `Emergence.Cli` with commands equivalent to:
+
+- `version`
+- `doctor`
+- `doctor --json <path>`
+- `self-test`
+- `self-test --json <path>`
+
+Use a simple maintainable command parser. Do not add a large command-framework dependency unless clearly justified.
+
+`version` must print stable build and runtime information.
+
+`doctor` must check and report:
+- process architecture;
+- .NET runtime;
+- repository/runtime mode;
+- current working directory;
+- writable temporary directory;
+- writable recommended local application-data directory;
+- loaded Project Emergence assembly versions;
+- whether the process is running from a packaged or development layout where determinable;
+- structured success, warning, and failure results;
+- an overall exit code.
+
+`self-test` must run a small deterministic nonbiological foundation test that does not duplicate Phase 0.2 domain work. Appropriate checks include:
+- deterministic UTF-8 byte handling;
+- known BCL SHA-256 result for a fixed internal test vector;
+- stable JSON property ordering produced by a deliberately configured serializer;
+- no culture-dependent output for the test vector.
+
+The self-test is a toolchain and runtime smoke test, not the final Project Emergence digest system.
+
+Exit codes:
+- 0: all required checks pass;
+- nonzero: required check fails;
+- warnings alone do not produce a success claim without being listed.
+
+GODOT APPLICATION SHELL
+Create a Godot 4.7 .NET project in:
+
+src\Emergence.App
+
+Requirements:
+- desktop Windows target;
+- one clean main scene;
+- C# only for application code;
+- no GDScript unless Godot itself generates an unavoidable file, which must be documented;
+- application title: Project Emergence;
+- a polished but minimal foundation shell;
+- no fake biological simulation;
+- display:
+  - Project Emergence;
+  - “Milestone 0 — Foundation Shell”;
+  - build version;
+  - .NET runtime;
+  - Godot version;
+  - current status.
+- provide a simple “Run Diagnostics” action that displays a readable summary from application-side checks;
+- provide a clean Quit action;
+- handle window resizing;
+- use a restrained dark scientific presentation;
+- keep presentation code isolated from future simulation libraries.
+
+COMMAND-LINE APP MODES
+Implement user-argument handling for packaged/source smoke verification, using Godot user arguments after `--` as appropriate.
+
+Provide modes equivalent to:
+- `--doctor-json <path>`: run application diagnostics, write JSON, exit.
+- `--smoke-exit`: initialize the main scene or application services sufficiently to prove startup, write a clear console result, then exit successfully.
+- normal launch: show the shell.
+
+Do not confuse Godot engine arguments with Project Emergence user arguments.
+
+GODOT PROJECT BOUNDARY
+The App must not create authoritative future world state.
+It may use:
+- `BuildInfo`;
+- presentation-only view models;
+- application diagnostics;
+- shell status.
+
+It must not introduce:
+- `Cell`;
+- `World`;
+- `Region`;
+- simulation update loops;
+- biology in `_Process` or `_PhysicsProcess`.
+
+HEADLESS/APPLICATION EQUIVALENCE
+Both CLI and Godot App must reference the same Foundation build-information contract where practical.
+They should report consistent product and assembly information.
+Godot-specific runtime details remain App-only.
+
+TESTS
+Use the SDK’s current stable test template and lock package versions centrally.
+
+Required tests:
+
+Foundation tests:
+- build-information fields are present and stable;
+- invariant formatting;
+- deterministic configured JSON output for a fixed record;
+- foundation self-test vector passes;
+- warnings/errors are represented structurally rather than inferred from console text.
+
+Architecture tests:
+- no non-App project references GodotSharp;
+- Foundation has no Project Emergence project references;
+- core assemblies do not reference App;
+- prohibited dependency directions fail;
+- no project accidentally references an unapproved package;
+- all expected projects exist.
+
+CLI integration tests:
+- `version` exits 0 and contains required fields;
+- `doctor --json` produces parseable JSON;
+- `self-test --json` produces parseable JSON and success;
+- invalid command returns nonzero and useful help;
+- culture changes do not alter machine-readable output.
+
+Godot smoke tests, when Godot is available:
+- project builds;
+- headless/editor command can load the project without script errors;
+- `--smoke-exit` exits successfully;
+- `--doctor-json` produces parseable JSON;
+- normal scene can launch for a manual smoke check.
+
+PACKAGING
+Create a Windows Desktop x86_64 export preset for the Godot .NET application.
+
+Packaging requirements:
+- use the Godot 4.7 .NET export templates matching the editor version;
+- package into a clean output directory outside source folders;
+- include only required runtime files and assets;
+- include version information;
+- run packaged `--smoke-exit`;
+- run packaged `--doctor-json`;
+- verify expected executable and required files exist;
+- record package file hashes and sizes.
+
+If export templates are unavailable:
+- create the export preset and packaging script;
+- fail the packaged-runtime acceptance step honestly;
+- report the exact missing prerequisite;
+- do not claim Phase 0.1 packaging passed.
+
+POWERSHELL ENGINEERING SCRIPTS
+Create robust PowerShell scripts under `eng\`:
+
+- `preflight.ps1`
+- `clean.ps1`
+- `build.ps1`
+- `test.ps1`
+- `doctor.ps1`
+- `package.ps1`
+- `verify-package.ps1`
+- `review-pack.ps1`
+
+Requirements:
+- use strict mode;
+- stop on errors where required;
+- accept parameters rather than hardcoding user-specific paths except the approved default roots;
+- preserve command output to log files;
+- return meaningful exit codes;
+- quote paths correctly;
+- avoid deleting outside known project-generated directories;
+- `clean.ps1` must not delete user saves, the design input, or review packs;
+- no script may change global Git, PowerShell, .NET, or Godot settings.
+
+REVIEW-PACK TOOL
+Implement a small `Emergence.ReviewPack` tool or equivalent script-backed tool that creates a self-contained review directory under:
+
+C:\Dev\ReviewPacks\ProjectEmergence\M0_P0.1_<timestamp>\
+
+Required review-pack contents:
+
+README_REVIEW.md
+IMPLEMENTATION_REPORT.md
+MANIFEST.json
+
+git\
+  branch.txt
+  head.txt
+  status.txt
+  log.txt
+  diff-stat.txt
+  tracked-files.txt
+
+environment\
+  dotnet-info.txt
+  godot-version.txt
+  git-version.txt
+  powershell-version.txt
+  windows-info.txt
+  preflight.json
+
+source\
+  exact tracked source snapshot for the reviewed commit or clearly identified dirty state
+
+tests\
+  complete logs
+  machine-readable results
+  coverage output if generated
+
+build\
+  build logs
+  produced assembly list
+  assembly hashes
+
+cli\
+  version output
+  doctor JSON
+  self-test JSON
+
+app\
+  Godot build/load logs
+  App doctor JSON
+  smoke output
+  screenshot of normal shell when available
+
+package\
+  packaged Windows application
+  package manifest
+  package file hashes
+  packaged doctor JSON
+  packaged smoke output
+
+docs\
+  architecture decisions
+  dependency graph
+  phase scope
+  known issues
+
+Do not include:
+- `.git` object database unless intentionally creating a separate Git bundle;
+- `bin`/`obj` duplicates outside reviewed build evidence;
+- NuGet caches;
+- Godot import cache unless required for package proof;
+- nested ZIPs;
+- personal files;
+- secrets.
+
+Optionally create one outer ZIP beside the review directory after the directory is complete. The ZIP must contain the directory contents only once.
+
+REVIEW MANIFEST
+`MANIFEST.json` must record:
+- project and phase;
+- UTC creation time;
+- repository root;
+- review-pack root;
+- Git branch, commit, and clean status;
+- selected .NET SDK and target frameworks;
+- Godot version and executable path;
+- whether export templates were available;
+- source-tree digest;
+- design-archive digest when imported;
+- test command list and outcomes;
+- package status;
+- files with relative path, byte size, and SHA-256;
+- warnings and known limitations.
+
+Do not invent pass results. A failed or skipped command must appear as such.
+
+ARCHITECTURE DOCUMENTATION
+Create:
+- `docs\architecture\0001-headless-core-and-godot-host.md`
+- `docs\architecture\0002-phase-0.1-framework-targets.md`
+- `docs\architecture\dependency-rules.md`
+- `docs\architecture\state-ownership-foundation.md`
+- `docs\development\setup-windows.md`
+- `docs\development\build-test-package.md`
+- `docs\development\review-pack.md`
+- `docs\roadmap\milestone-0.md`
+
+ADR 0001 must lock:
+- headless core;
+- Godot as presentation host;
+- no Godot dependency in core;
+- no node-per-cell scalable design;
+- CPU-authoritative initial direction;
+- no biology in Phase 0.1.
+
+ADR 0002 must record the actual selected SDK and target frameworks, preflight evidence, reason, compatibility, and upgrade trigger.
+
+ROOT README
+Create a useful `README.md` that includes:
+- project purpose;
+- current phase;
+- what is and is not implemented;
+- requirements;
+- build commands;
+- test commands;
+- Godot launch;
+- package command;
+- diagnostic commands;
+- review-pack command;
+- repository map;
+- design archive location;
+- warning that no biological simulation exists yet.
+
+Do not market the shell as a life simulator already working.
+
+GIT
+If the directory is not a Git repository:
+- initialize Git;
+- create or use `main`;
+- do not change global Git configuration.
+
+Before the final review pack:
+- remove unintended files;
+- run all verification;
+- create a focused local commit if Git author configuration already permits it;
+- suggested commit message:
+  `M0 P0.1 foundation shell and toolchain`
+- do not push or create a remote unless explicitly requested.
+
+If Git author configuration prevents committing:
+- do not invent the user’s identity;
+- report the blocker;
+- create review evidence from the exact dirty working tree;
+- mark clean-commit acceptance as not passed.
+
+PROHIBITED SHORTCUTS
+Do not:
+- put simulation code in Godot nodes;
+- create fake cells or fields;
+- add a global service locator holding mutable world state;
+- let the App reference internal mutable collections;
+- use reflection-heavy architecture frameworks;
+- add a database;
+- add remote telemetry;
+- use preview engine or SDK builds;
+- suppress warnings broadly;
+- mark skipped package checks as passed;
+- create review output inside the repository;
+- commit generated package or review directories;
+- change user-wide tool settings;
+- download dependencies outside normal NuGet restore without permission;
+- alter the design archive;
+- claim deterministic biological infrastructure beyond the small Phase 0.1 runtime self-test.
+
+REQUIRED COMMAND EXECUTION
+Run and preserve exact output for all applicable commands. At minimum:
+
+1. preflight script;
+2. `dotnet restore`;
+3. `dotnet build` in Debug;
+4. `dotnet build` in Release;
+5. complete automated tests in Debug or Release;
+6. coverage collection;
+7. CLI `version`;
+8. CLI `doctor --json`;
+9. CLI `self-test --json`;
+10. Godot project build/load check;
+11. App `--smoke-exit`;
+12. App `--doctor-json`;
+13. Windows package export;
+14. packaged smoke;
+15. packaged doctor;
+16. review-pack generation;
+17. review-pack manifest verification;
+18. final `git status --short`.
+
+Use the exact selected executable paths in logs.
+
+CLEAN-WORKTREE VERIFICATION
+After commit, rerun at least:
+- Release build;
+- tests;
+- CLI self-test;
+- package verification if available;
+- review-pack manifest verification.
+
+The final report must distinguish pre-commit and post-commit results.
+
+PHASE ACCEPTANCE CRITERIA
+Phase 0.1 is ready for independent review only when:
+
+- the repository structure exists and is coherent;
+- dependency rules are enforced by tests;
+- all authored C# builds without warnings;
+- Foundation, CLI, and App compile;
+- CLI diagnostics and self-test pass;
+- the Godot shell launches;
+- the App does not contain biological simulation;
+- packaged Windows export and packaged diagnostics pass, or the exact external export-template blocker is reported without false success;
+- review-pack generation succeeds;
+- source, test, build, and package evidence are traceable;
+- Git status and commit state are honest;
+- no prohibited shortcut is present.
+
+COMPLETION REPORT FORMAT
+Return a concise but complete report with these exact sections:
+
+1. Phase
+2. Baseline Verified
+3. Toolchain Selected
+4. Summary
+5. Requirements Implemented
+6. Repository Structure
+7. Files Created
+8. Files Modified
+9. Architecture Decisions
+10. Tests Added
+11. Commands Run and Exact Results
+12. Godot Shell Verification
+13. Windows Package Verification
+14. Diagnostics Results
+15. Review Pack
+16. Git Status and Commit
+17. Known Issues
+18. Deferred Work
+19. Acceptance-Criteria Self-Assessment
+
+For every command, identify:
+- command;
+- exit code;
+- pass/fail/skipped;
+- relevant count or artifact;
+- log path.
+
+Do not say “all tests pass” without the exact test count.
+Do not say packaging passed without packaged execution evidence.
+Do not say the repository is clean without showing final Git status.
+Do not begin Phase 0.2.

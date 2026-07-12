@@ -1,0 +1,374 @@
+using System.Text.Json;
+
+namespace Emergence.ReviewPack;
+
+public static class ManifestIntegrityValidator
+{
+    public static VerificationResult Validate(string reviewRoot, ReviewManifest manifest)
+    {
+        List<string> errors = [];
+        if (manifest.SchemaVersion != 2 || string.IsNullOrWhiteSpace(manifest.Project) || string.IsNullOrWhiteSpace(manifest.Phase))
+        {
+            errors.Add("Manifest schema header is invalid.");
+        }
+
+        Dictionary<string, ReviewFileEntry> listed = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ReviewFileEntry entry in manifest.Files)
+        {
+            if (!EvidencePaths.IsSafeNormalizedRelativePath(entry.Path))
+            {
+                errors.Add($"Unsafe or non-normalized manifest path: '{entry.Path}'.");
+                continue;
+            }
+            if (!listed.TryAdd(entry.Path, entry))
+            {
+                errors.Add($"Duplicate manifest path: '{entry.Path}'.");
+                continue;
+            }
+            if (ReviewPackFilters.IsProhibitedRelativePath(entry.Path))
+            {
+                errors.Add($"Prohibited generated or archive path: '{entry.Path}'.");
+            }
+        }
+
+        Dictionary<string, string> actual = new(StringComparer.OrdinalIgnoreCase);
+        string manifestFile = Path.GetFullPath(Path.Combine(reviewRoot, "MANIFEST.json"));
+        foreach (string path in Directory.EnumerateFiles(reviewRoot, "*", SearchOption.AllDirectories)
+                     .Where(path => !string.Equals(Path.GetFullPath(path), manifestFile, StringComparison.OrdinalIgnoreCase)))
+        {
+            string relative = Path.GetRelativePath(reviewRoot, path).Replace('\\', '/');
+            if (!actual.TryAdd(relative, path))
+            {
+                errors.Add($"Actual review pack contains case-colliding duplicate path: '{relative}'.");
+            }
+        }
+
+        foreach ((string relative, string path) in actual)
+        {
+            if (ReviewPackFilters.IsProhibitedRelativePath(relative))
+            {
+                errors.Add($"Actual review pack contains prohibited generated or archive path: '{relative}'.");
+            }
+            if (!listed.TryGetValue(relative, out ReviewFileEntry? entry))
+            {
+                errors.Add($"Unlisted extra file: '{relative}'.");
+                continue;
+            }
+            FileInfo info = new(path);
+            if (info.Length != entry.Bytes || !string.Equals(EvidencePaths.HashFile(path), entry.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"Size or SHA-256 mismatch: '{relative}'.");
+            }
+        }
+        foreach (string relative in listed.Keys.Where(relative => !actual.ContainsKey(relative)))
+        {
+            errors.Add($"Manifest lists a missing file: '{relative}'.");
+        }
+
+        string sourceRoot = Path.Combine(reviewRoot, "source");
+        if (!Directory.Exists(sourceRoot))
+        {
+            errors.Add("Source snapshot directory is missing.");
+        }
+        else
+        {
+            string digest = EvidencePaths.DigestTree(sourceRoot);
+            if (!string.Equals(digest, manifest.SourceTreeDigest, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"Source-tree digest mismatch: manifest={manifest.SourceTreeDigest}, actual={digest}.");
+            }
+        }
+
+        return new VerificationResult(
+            errors.Count == 0,
+            errors,
+            manifest.Files.Count,
+            actual.Count,
+            manifest.Tests.Sum(test => test.Total),
+            manifest.Tests.Sum(test => test.Passed),
+            manifest.Package.PackageFileCount);
+    }
+}
+
+public static class ReviewPackVerifier
+{
+    private const string ExpectedDesignDigest = "915f013f26955e1c614bb851a39b83c6966951ee94b73ac13a06167b2ff5fb6c";
+
+    private static readonly string[] ExpectedTestProjects =
+    [
+        "Emergence.Foundation.Tests",
+        "Emergence.Architecture.Tests",
+        "Emergence.Cli.IntegrationTests",
+        "Emergence.ReviewPack.Tests",
+    ];
+
+    public static VerificationResult Verify(string manifestPath)
+    {
+        string fullManifest = Path.GetFullPath(manifestPath);
+        if (!File.Exists(fullManifest))
+        {
+            return VerificationResult.Failure($"Manifest is missing: {fullManifest}");
+        }
+
+        ReviewManifest? manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<ReviewManifest>(
+                File.ReadAllText(fullManifest),
+                ReviewPackJson.Options);
+        }
+        catch (JsonException exception)
+        {
+            return VerificationResult.Failure($"Manifest JSON is invalid: {exception.Message}");
+        }
+        if (manifest is null)
+        {
+            return VerificationResult.Failure("Manifest JSON deserialized to null.");
+        }
+
+        string reviewRoot = Path.GetDirectoryName(fullManifest)!;
+        VerificationResult integrity = ManifestIntegrityValidator.Validate(reviewRoot, manifest);
+        List<string> errors = [.. integrity.Errors];
+        ValidateRequiredDocuments(reviewRoot, errors);
+        ValidateDesignDigest(reviewRoot, manifest, errors);
+        ValidateSourceListing(reviewRoot, errors);
+        ValidatePreflight(reviewRoot, manifest, errors);
+        ValidateTests(reviewRoot, manifest, errors);
+
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion);
+        if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
+        {
+            errors.Add($"App evidence is not passed: {app.Detail}");
+        }
+        if (!Equivalent(app, manifest.App))
+        {
+            errors.Add("Manifest App outcome disagrees with current App evidence.");
+        }
+
+        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0");
+        if (package.Status != EvidenceStatus.Passed || manifest.Package.Status != EvidenceStatus.Passed)
+        {
+            errors.Add($"Package evidence is not passed: {package.Detail}");
+        }
+        if (!Equivalent(package, manifest.Package))
+        {
+            errors.Add("Manifest package outcome disagrees with current package evidence.");
+        }
+
+        if (!manifest.GitClean)
+        {
+            errors.Add("Manifest does not identify a clean reviewed working tree.");
+        }
+        if (manifest.Tests.Any(test => test.Status != EvidenceStatus.Passed))
+        {
+            errors.Add("One or more required test outcomes are not Passed.");
+        }
+
+        return integrity with
+        {
+            Success = errors.Count == 0,
+            Errors = errors,
+            TestTotal = manifest.Tests.Sum(test => test.Total),
+            TestPassed = manifest.Tests.Sum(test => test.Passed),
+            PackageFileCount = package.PackageFileCount,
+        };
+    }
+
+    private static void ValidateTests(string reviewRoot, ReviewManifest manifest, List<string> errors)
+    {
+        string[] recordedProjects = manifest.Tests.Select(test => test.Project).OrderBy(project => project, StringComparer.Ordinal).ToArray();
+        string[] expectedProjects = ExpectedTestProjects.OrderBy(project => project, StringComparer.Ordinal).ToArray();
+        if (!recordedProjects.SequenceEqual(expectedProjects, StringComparer.Ordinal))
+        {
+            errors.Add($"Manifest test-project set is incomplete or unexpected: {string.Join(", ", recordedProjects)}.");
+        }
+        foreach (TestEvidence recorded in manifest.Tests)
+        {
+            string trx;
+            string coverage;
+            try
+            {
+                trx = EvidencePaths.ResolveSafePath(reviewRoot, recorded.TrxPath);
+                coverage = EvidencePaths.ResolveSafePath(reviewRoot, recorded.CoveragePath);
+            }
+            catch (InvalidDataException exception)
+            {
+                errors.Add(exception.Message);
+                continue;
+            }
+
+            TestEvidence parsed = TrxEvidenceParser.Parse(
+                recorded.Project,
+                recorded.Command,
+                recorded.Configuration,
+                trx,
+                coverage,
+                recorded.TrxPath,
+                recorded.CoveragePath);
+            if (parsed.Status != recorded.Status
+                || parsed.Total != recorded.Total
+                || parsed.Executed != recorded.Executed
+                || parsed.Passed != recorded.Passed
+                || parsed.Failed != recorded.Failed
+                || parsed.SkippedNotExecuted != recorded.SkippedNotExecuted
+                || !string.Equals(parsed.TrxSha256, recorded.TrxSha256, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(parsed.CoverageSha256, recorded.CoverageSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"Manifest test outcome disagrees with TRX/coverage evidence for {recorded.Project}.");
+            }
+        }
+    }
+
+    private static void ValidateDesignDigest(string reviewRoot, ReviewManifest manifest, List<string> errors)
+    {
+        string[] digestFiles =
+        [
+            Path.Combine(reviewRoot, "source", "docs", "design", "v1.0", "IMPORTED_ARCHIVE_SHA256.txt"),
+            Path.Combine(reviewRoot, "docs", "design", "v1.0", "IMPORTED_ARCHIVE_SHA256.txt"),
+        ];
+        if (string.IsNullOrWhiteSpace(manifest.DesignArchiveDigest))
+        {
+            errors.Add("Manifest designArchiveDigest is empty.");
+            return;
+        }
+        if (!string.Equals(manifest.DesignArchiveDigest, ExpectedDesignDigest, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"Manifest designArchiveDigest does not match the authoritative Phase 0.1R digest {ExpectedDesignDigest}.");
+        }
+        foreach (string file in digestFiles)
+        {
+            if (!File.Exists(file))
+            {
+                errors.Add($"Imported design digest evidence is missing: {file}");
+                continue;
+            }
+            string value = File.ReadAllText(file).Trim();
+            if (!string.Equals(value, manifest.DesignArchiveDigest, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"Imported design digest disagrees with manifest: {file}");
+            }
+        }
+    }
+
+    private static void ValidateSourceListing(string reviewRoot, List<string> errors)
+    {
+        string listing = Path.Combine(reviewRoot, "git", "tracked-files.txt");
+        string source = Path.Combine(reviewRoot, "source");
+        if (!File.Exists(listing) || !Directory.Exists(source))
+        {
+            errors.Add("Tracked-file listing or source snapshot is missing.");
+            return;
+        }
+        string[] recorded = File.ReadAllLines(listing)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => line.Trim().Replace('\\', '/'))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        string[] actual = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)
+            .Select(path => Path.GetRelativePath(source, path).Replace('\\', '/'))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        if (!recorded.SequenceEqual(actual, StringComparer.Ordinal))
+        {
+            errors.Add("Source snapshot paths disagree with git/tracked-files.txt.");
+        }
+    }
+
+    private static void ValidatePreflight(string reviewRoot, ReviewManifest manifest, List<string> errors)
+    {
+        string preflight = Path.Combine(reviewRoot, "environment", "preflight.json");
+        if (!File.Exists(preflight))
+        {
+            errors.Add("Preflight JSON is missing.");
+            return;
+        }
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(preflight));
+            JsonElement root = document.RootElement;
+            string version = root.TryGetProperty("godotVersion", out JsonElement versionElement) ? versionElement.GetString() ?? string.Empty : string.Empty;
+            string executable = root.TryGetProperty("godotExecutable", out JsonElement executableElement) ? executableElement.GetString() ?? string.Empty : string.Empty;
+            bool templates = root.TryGetProperty("windowsExportTemplatesAvailable", out JsonElement templatesElement) && templatesElement.ValueKind == JsonValueKind.True;
+            if (!string.Equals(version, manifest.GodotVersion, StringComparison.Ordinal)
+                || !string.Equals(executable, manifest.GodotExecutablePath, StringComparison.OrdinalIgnoreCase)
+                || templates != manifest.ExportTemplatesAvailable
+                || !templates)
+            {
+                errors.Add("Manifest Godot/toolchain claims disagree with preflight JSON.");
+            }
+        }
+        catch (JsonException exception)
+        {
+            errors.Add($"Preflight JSON is invalid: {exception.Message}");
+        }
+    }
+
+    private static void ValidateRequiredDocuments(string reviewRoot, List<string> errors)
+    {
+        string[] required =
+        [
+            "README_REVIEW.md",
+            "IMPLEMENTATION_REPORT.md",
+            "docs/phase-scope.md",
+            "docs/known-issues.md",
+            "docs/design/README.md",
+        ];
+        foreach (string relative in required)
+        {
+            if (!File.Exists(Path.Combine(reviewRoot, relative.Replace('/', Path.DirectorySeparatorChar))))
+            {
+                errors.Add($"Required review document is missing: {relative}");
+            }
+        }
+        foreach (string directory in new[] { "docs/architecture", "docs/roadmap", "docs/development" })
+        {
+            string full = Path.Combine(reviewRoot, directory.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(full) || !Directory.EnumerateFiles(full, "*", SearchOption.AllDirectories).Any())
+            {
+                errors.Add($"Required review documentation directory is missing or empty: {directory}");
+            }
+        }
+
+        string report = Path.Combine(reviewRoot, "IMPLEMENTATION_REPORT.md");
+        if (File.Exists(report))
+        {
+            string contents = File.ReadAllText(report);
+            foreach (string heading in ImplementationReportBuilder.RequiredHeadings)
+            {
+                if (!contents.Contains($"## {heading}", StringComparison.Ordinal))
+                {
+                    errors.Add($"Implementation report is missing heading '{heading}'.");
+                }
+            }
+        }
+    }
+
+    private static bool Equivalent(AppEvidence left, AppEvidence right) =>
+        left.Status == right.Status
+        && left.GodotVersion == right.GodotVersion
+        && left.TargetFramework == right.TargetFramework
+        && left.GitCommit.Equals(right.GitCommit, StringComparison.OrdinalIgnoreCase);
+
+    private static bool Equivalent(PackageEvidence left, PackageEvidence right) =>
+        left.Status == right.Status
+        && left.TargetFramework == right.TargetFramework
+        && left.GitCommit.Equals(right.GitCommit, StringComparison.OrdinalIgnoreCase)
+        && left.PackageFileCount == right.PackageFileCount;
+}
+
+public static class ReviewPackJson
+{
+    public static JsonSerializerOptions Options { get; } = Create();
+
+    private static JsonSerializerOptions Create()
+    {
+        JsonSerializerOptions options = new()
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = false,
+            WriteIndented = true,
+        };
+        options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter<EvidenceStatus>());
+        return options;
+    }
+}
