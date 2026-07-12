@@ -13,6 +13,7 @@ public sealed class FoundationTests
 
         Assert.Equal("Project Emergence", build.ProductName);
         Assert.Equal("0.1.0-dev", build.SemanticVersion);
+        Assert.Contains("Version=v10.0", build.TargetFramework, StringComparison.Ordinal);
         Assert.All(
             new[]
             {

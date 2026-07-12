@@ -37,3 +37,23 @@ function Resolve-GodotExecutable {
     }
     return $null
 }
+
+function Resolve-GodotExportTemplateDirectory {
+    param([Parameter(Mandatory = $true)][string]$GodotVersion)
+
+    $templateBase = Join-Path $env:APPDATA 'Godot\export_templates'
+    if (-not (Test-Path -LiteralPath $templateBase -PathType Container)) { return $null }
+    if ($GodotVersion -notmatch '^(\d+\.\d+(?:\.\d+)?\.stable(?:\.mono)?)') { return $null }
+
+    $identifiers = @($Matches[1])
+    if ($Matches[1].EndsWith('.mono', [StringComparison]::Ordinal)) {
+        $identifiers += $Matches[1].Substring(0, $Matches[1].Length - 5)
+    }
+    foreach ($identifier in $identifiers) {
+        $candidate = Join-Path $templateBase $identifier
+        if (Test-Path -LiteralPath (Join-Path $candidate 'windows_release_x86_64.exe') -PathType Leaf) {
+            return $candidate
+        }
+    }
+    return $null
+}

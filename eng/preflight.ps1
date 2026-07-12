@@ -54,10 +54,8 @@ if ($resolvedGodot) {
     $godotExit = $LASTEXITCODE
     $godotVersion | Out-File -FilePath (Join-Path $output 'godot-version.txt') -Encoding utf8
     $godotDotnet = ($godotVersion -match 'mono|\.net') -or ((Split-Path -Leaf $resolvedGodot) -match 'mono|\.net')
-    if ($godotVersion -match '^([0-9]+\.[0-9]+(?:\.[0-9]+)?[^\s]*)') {
-        $templateRoot = Join-Path $env:APPDATA ('Godot\export_templates\' + $Matches[1])
-        $templates = Test-Path -LiteralPath $templateRoot -PathType Container
-    }
+    $templateRoot = Resolve-GodotExportTemplateDirectory $godotVersion
+    $templates = [bool]$templateRoot
 } else {
     'UNAVAILABLE: no Godot executable was found.' | Out-File -FilePath (Join-Path $output 'godot-version.txt') -Encoding utf8
 }

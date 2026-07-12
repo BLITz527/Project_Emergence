@@ -9,10 +9,12 @@ $ErrorActionPreference = 'Stop'
 $root = Get-RepositoryRoot
 if (-not $ArtifactsRoot) { $ArtifactsRoot = Join-Path $root 'artifacts\app' }
 $output = New-ArtifactDirectory $ArtifactsRoot
+$statusPath = Join-Path $output 'app-status.txt'
+if (Test-Path -LiteralPath $statusPath) { Remove-Item -LiteralPath $statusPath -Force }
 $godot = Resolve-GodotExecutable $GodotPath
 if (-not $godot) {
     'SKIPPED/BLOCKED: Godot 4.7 stable .NET executable was not found. Source compilation is covered by the solution build; load, smoke, doctor, normal launch, and screenshot are not accepted.' |
-        Out-File -FilePath (Join-Path $output 'app-status.txt') -Encoding utf8
+        Out-File -FilePath $statusPath -Encoding utf8
     throw 'Godot App runtime verification is blocked: Godot 4.7 stable .NET executable was not found.'
 }
 
@@ -25,5 +27,5 @@ $project = Join-Path $root 'src\Emergence.App'
 Invoke-LoggedCommand (Join-Path $output 'load.log') { & $godot --headless --editor --path $project --quit }
 Invoke-LoggedCommand (Join-Path $output 'smoke.log') { & $godot --headless --path $project -- --smoke-exit }
 Invoke-LoggedCommand (Join-Path $output 'doctor.log') { & $godot --headless --path $project -- --doctor-json (Join-Path $output 'doctor.json') }
-'PASSED: headless project load, main-scene smoke, and App diagnostics exited 0. Normal window/screenshot still requires manual evidence.' |
-    Out-File -FilePath (Join-Path $output 'app-status.txt') -Encoding utf8
+'PASSED: headless project load, main-scene smoke, and App diagnostics exited 0. Normal-window and screenshot evidence are recorded separately when available.' |
+    Out-File -FilePath $statusPath -Encoding utf8

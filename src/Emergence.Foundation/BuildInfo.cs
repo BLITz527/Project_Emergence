@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace Emergence.Foundation;
 
@@ -36,7 +37,9 @@ public static class BuildInfo
             informational,
             Metadata(assembly, "GitCommit"),
             Metadata(assembly, "BuildConfiguration"),
-            AppContext.TargetFrameworkName ?? "unknown",
+            assembly.GetCustomAttribute<TargetFrameworkAttribute>()?.FrameworkName
+                ?? AppContext.TargetFrameworkName
+                ?? "unknown",
             RuntimeInformation.FrameworkDescription,
             RuntimeInformation.OSDescription,
             RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant());
