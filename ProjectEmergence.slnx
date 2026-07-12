@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Emergence.Foundation/Emergence.Foundation.csproj" />
+    <Project Path="src/Emergence.Model/Emergence.Model.csproj" />
+    <Project Path="src/Emergence.Simulation/Emergence.Simulation.csproj" />
+    <Project Path="src/Emergence.Analytics/Emergence.Analytics.csproj" />
+    <Project Path="src/Emergence.History/Emergence.History.csproj" />
+    <Project Path="src/Emergence.Persistence/Emergence.Persistence.csproj" />
+    <Project Path="src/Emergence.Presentation.Contracts/Emergence.Presentation.Contracts.csproj" />
+    <Project Path="src/Emergence.Cli/Emergence.Cli.csproj" />
+    <Project Path="src/Emergence.App/Emergence.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.csproj" />
+    <Project Path="tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.csproj" />
+    <Project Path="tests/Emergence.Cli.IntegrationTests/Emergence.Cli.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Emergence.ReviewPack/Emergence.ReviewPack.csproj" />
+  </Folder>
+</Solution>

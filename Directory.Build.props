@@ -1,0 +1,27 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>14.0</LangVersion>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <Product>Project Emergence</Product>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionSuffix>dev</VersionSuffix>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <GitCommit Condition="'$(GitCommit)' == ''">unknown</GitCommit>
+    <InformationalVersion>0.1.0-dev+$(GitCommit)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <RepositoryUrl>https://example.invalid/ProjectEmergence</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>false</PublishRepositoryUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="GitCommit" Value="$(GitCommit)" />
+    <AssemblyMetadata Include="BuildConfiguration" Value="$(Configuration)" />
+  </ItemGroup>
+</Project>

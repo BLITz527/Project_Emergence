@@ -1,0 +1,16 @@
+artifacts/
+**/bin/
+**/obj/
+.godot/
+.mono/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.tmp
+*.log
+TestResults/
+coverage/
+export/
+.template-probe/
