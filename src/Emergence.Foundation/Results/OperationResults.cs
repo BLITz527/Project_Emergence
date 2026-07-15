@@ -11,6 +11,7 @@ public readonly record struct IssueCode
 {
     public IssueCode(string value) { _ = new ConfigurationKey(value); Value = value; }
     public string Value { get; }
+    public bool IsEmpty => string.IsNullOrEmpty(Value);
     public static IssueCode Parse(string text) => new(text);
     public static bool TryParse(string? text, out IssueCode value) { try { value = new(text!); return true; } catch (ArgumentException) { value = default; return false; } }
     public override string ToString() => Value ?? string.Empty;
@@ -20,6 +21,7 @@ public sealed record FoundationIssue
 {
     public FoundationIssue(IssueCode code, IssueSeverity severity, string summary, string detail)
     {
+        if (code.IsEmpty) throw new ArgumentException("Issue code cannot be empty.", nameof(code));
         ArgumentNullException.ThrowIfNull(summary); ArgumentNullException.ThrowIfNull(detail);
         Code = code; Severity = severity; Summary = summary; Detail = detail;
     }

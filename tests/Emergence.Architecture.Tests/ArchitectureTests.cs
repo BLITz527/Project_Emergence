@@ -18,6 +18,7 @@ public sealed class ArchitectureTests
         "src/Emergence.Cli/Emergence.Cli.csproj",
         "src/Emergence.App/Emergence.App.csproj",
         "tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.csproj",
+        "tests/Emergence.Persistence.Tests/Emergence.Persistence.Tests.csproj",
         "tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.csproj",
         "tests/Emergence.Cli.IntegrationTests/Emergence.Cli.IntegrationTests.csproj",
         "tests/Emergence.ReviewPack.Tests/Emergence.ReviewPack.Tests.csproj",
@@ -64,8 +65,8 @@ public sealed class ArchitectureTests
             ["Emergence.History"] = ["Emergence.Foundation", "Emergence.Model"],
             ["Emergence.Persistence"] = ["Emergence.Foundation"],
             ["Emergence.Presentation.Contracts"] = ["Emergence.Foundation"],
-            ["Emergence.Cli"] = ["Emergence.Foundation"],
-            ["Emergence.App"] = ["Emergence.Foundation", "Emergence.Presentation.Contracts"],
+            ["Emergence.Cli"] = ["Emergence.Foundation", "Emergence.Persistence"],
+            ["Emergence.App"] = ["Emergence.Foundation", "Emergence.Persistence", "Emergence.Presentation.Contracts"],
         };
 
         foreach ((string project, string[] allowed) in approved)
@@ -101,8 +102,8 @@ public sealed class ArchitectureTests
     [Fact]
     public void FoundationDomainCodeContainsNoNondeterministicInputs()
     {
-        string[] directories = ["Identifiers", "Time", "Quantities", "Hashing", "Versioning", "Configuration"];
-        string[] prohibited = ["Guid.NewGuid", "DateTime.Now", "DateTime.UtcNow", "Random(", "RandomNumberGenerator", "Time.GetTicks", "Godot"];
+        string[] directories = ["Identifiers", "Time", "Quantities", "Hashing", "Versioning", "Configuration", "Randomness", "Rulesets"];
+        string[] prohibited = ["Guid.NewGuid", "DateTime.Now", "DateTime.UtcNow", "System.Random", "Random.Shared", "RandomNumberGenerator", "Time.GetTicks", "Godot"];
         foreach (string directory in directories)
         {
             foreach (string file in Directory.GetFiles(At($"src/Emergence.Foundation/{directory}"), "*.cs", SearchOption.AllDirectories))
@@ -150,6 +151,28 @@ public sealed class ArchitectureTests
         string source = string.Join("\n", Directory.GetFiles(At("src/Emergence.Foundation/Configuration"), "*.cs").Select(File.ReadAllText));
         string[] prohibited = ["System.Reflection", "System.Linq.Expressions", "CSharpScript", "Assembly.Load", "Delegate", "dynamic"];
         Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RulesetLoadingHasNoExecutableOrNetworkMechanism()
+    {
+        string source = string.Join("\n", Directory.GetFiles(At("src/Emergence.Persistence/Rulesets"), "*.cs").Select(File.ReadAllText));
+        string[] prohibited = ["System.Net", "HttpClient", "Assembly.Load", "Activator.CreateInstance", "System.Reflection", "CSharpScript", "Compile", "DllImport"];
+        Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AddressedRngAndRegistryContainNoGlobalMutableStateOrFallbackApi()
+    {
+        string rng = File.ReadAllText(At("src/Emergence.Foundation/Randomness/RngValues.cs"));
+        string rulesets = File.ReadAllText(At("src/Emergence.Foundation/Rulesets/RulesetTypes.cs"));
+        Assert.DoesNotContain("static DeterministicAddressedRng", rng, StringComparison.Ordinal);
+        Assert.DoesNotContain("cursor", rng, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("stream", rng, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("latest", rulesets, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("wildcard", rulesets, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("static RulesetRegistry Instance", rulesets, StringComparison.Ordinal);
+        Assert.DoesNotContain("static RulesetRegistry Current", rulesets, StringComparison.Ordinal);
     }
 
     [Fact]

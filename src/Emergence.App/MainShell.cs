@@ -1,5 +1,8 @@
 using System.Runtime.InteropServices;
 using Emergence.Foundation;
+using Emergence.Foundation.Randomness;
+using Emergence.Foundation.Versioning;
+using Emergence.Persistence.Rulesets;
 using Godot;
 
 namespace Emergence.App;
@@ -24,8 +27,11 @@ public partial class MainShell : Control
     {
         if (arguments.Contains("--smoke-exit", StringComparer.Ordinal))
         {
-            GD.Print("PROJECT_EMERGENCE_SMOKE_OK: main scene initialized");
-            GetTree().Quit(0);
+            RulesetDirectoryLoadResult rulesets = LoadRulesets();
+            bool success = IsExpectedRegistry(rulesets);
+            if (success) GD.Print("PROJECT_EMERGENCE_SMOKE_OK: main scene initialized; reference ruleset validated");
+            else GD.PushError("PROJECT_EMERGENCE_SMOKE_FAILED: reference ruleset validation failed");
+            GetTree().Quit(success ? 0 : 1);
             return true;
         }
 
@@ -67,11 +73,11 @@ public partial class MainShell : Control
         layout.AddThemeConstantOverride("separation", 14);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.2", 14, accent);
+        Label eyebrow = Label("FOUNDATION / M0.3", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
-        Label subtitle = Label("Milestone 0 — Foundational Domain Types", 20, muted);
+        Label subtitle = Label("Milestone 0 — Deterministic RNG and Rulesets", 20, muted);
         layout.AddChild(subtitle);
 
         HSeparator separator = new();
@@ -79,16 +85,19 @@ public partial class MainShell : Control
         layout.AddChild(separator);
 
         BuildDetails build = BuildInfo.Current;
+        RulesetDirectoryLoadResult rulesets = LoadRulesets();
         GridContainer facts = new() { Columns = 2 };
         facts.AddThemeConstantOverride("h_separation", 32);
         facts.AddThemeConstantOverride("v_separation", 8);
         AddFact(facts, "BUILD", build.InformationalVersion, muted, primary);
         AddFact(facts, ".NET", RuntimeInformation.FrameworkDescription, muted, primary);
         AddFact(facts, "GODOT", Engine.GetVersionInfo()["string"].AsString(), muted, primary);
+        AddFact(facts, "RNG", "Addressed SHA-256 V1", muted, accent);
+        AddFact(facts, "RULESETS", IsExpectedRegistry(rulesets) ? $"1 validated · {rulesets.Registry!.Digest.ToString()[..12]}…" : "validation failed", muted, IsExpectedRegistry(rulesets) ? accent : new Color("e06c75"));
         AddFact(facts, "STATUS", "Ready — foundation services nominal", muted, accent);
         layout.AddChild(facts);
 
-        _statusLabel = Label("No biological simulation is implemented in this phase.", 15, muted);
+        _statusLabel = Label("No world or biological simulation exists in this phase.", 15, muted);
         _statusLabel.CustomMinimumSize = new Vector2(0, 44);
         layout.AddChild(_statusLabel);
 
@@ -131,8 +140,38 @@ public partial class MainShell : Control
             DiagnosticSeverity.Success,
             "Godot runtime",
             Engine.GetVersionInfo()["string"].AsString()));
+        RulesetDirectoryLoadResult rulesets = LoadRulesets();
+        checks.Add(new DiagnosticCheck(
+            "ruleset.registry",
+            IsExpectedRegistry(rulesets) ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+            "Foundation reference ruleset",
+            rulesets.Registry is null ? string.Join("; ", rulesets.Issues.Select(static issue => $"{issue.FileName}: {issue.Reason}")) : $"count={rulesets.Registry.Entries.Count};digest={rulesets.Registry.Digest}"));
+        checks.Add(new DiagnosticCheck(
+            "rng.algorithm",
+            AlgorithmCatalog.Phase03.Digest.ToString() == FoundationRngSelfTest.ExpectedAlgorithmDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+            "Phase 0.3 algorithm catalog",
+            AlgorithmCatalog.Phase03.Digest.ToString()));
+        checks.Add(new DiagnosticCheck(
+            "rng.domains",
+            RngDomainCatalog.Phase03.Digest.ToString() == FoundationRngSelfTest.ExpectedDomainDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+            "Phase 0.3 RNG domain catalog",
+            RngDomainCatalog.Phase03.Digest.ToString()));
         return foundation with { Success = checks.All(check => check.Severity != DiagnosticSeverity.Failure), Checks = checks };
     }
+
+    private static RulesetDirectoryLoadResult LoadRulesets() => new RulesetDirectoryLoader().Load(ResolveRulesetDirectory());
+
+    private static string ResolveRulesetDirectory()
+    {
+        string executable = OS.GetExecutablePath();
+        if (string.Equals(Path.GetFileName(executable), "ProjectEmergence.exe", StringComparison.OrdinalIgnoreCase))
+            return Path.Combine(Path.GetDirectoryName(executable)!, "rulesets");
+        return ProjectSettings.GlobalizePath("res://../../rulesets");
+    }
+
+    private static bool IsExpectedRegistry(RulesetDirectoryLoadResult result) =>
+        result.Success && result.Registry?.Entries.Count == 1
+        && result.Registry.Digest.ToString() == "0f04aa596563a6c706ad4177d7b48b19ea44f5ac62c1cd823203531568f33a4d";
 
     private static Label Label(string text, int size, Color color)
     {

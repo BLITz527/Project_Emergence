@@ -15,7 +15,7 @@ public sealed class CliIntegrationTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Product: Project Emergence", result.Output, StringComparison.Ordinal);
         Assert.Contains("Version:", result.Output, StringComparison.Ordinal);
-        Assert.Contains("Version: 0.2.0-dev", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Version: 0.3.0-dev", result.Output, StringComparison.Ordinal);
         Assert.Contains("Target framework:", result.Output, StringComparison.Ordinal);
         Assert.Contains("Runtime:", result.Output, StringComparison.Ordinal);
     }
@@ -136,6 +136,42 @@ public sealed class CliIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task RngSelfTestStdoutMatchesEveryPrimaryVector()
+    {
+        Invocation result = await Invoke("rng-self-test"); using JsonDocument document = JsonDocument.Parse(result.Output); JsonElement root = document.RootElement;
+        Assert.Equal(0, result.ExitCode); Assert.True(root.GetProperty("success").GetBoolean());
+        Assert.Equal(FoundationRngSelfTest.ExpectedBlock, root.GetProperty("block").GetString());
+        Assert.Equal(FoundationRngSelfTest.ExpectedLane0, root.GetProperty("lane0").GetUInt64());
+        Assert.Equal(FoundationRngSelfTest.ExpectedBounded10, root.GetProperty("bounded10").GetUInt64());
+        Assert.Equal(FoundationRngSelfTest.ExpectedDomainDigest, root.GetProperty("domainCatalogDigest").GetString());
+        Assert.Equal(FoundationRngSelfTest.ExpectedAlgorithmDigest, root.GetProperty("algorithmCatalogDigest").GetString());
+        Assert.Equal((await Invoke("rng-self-test")).Output, result.Output);
+    }
+
+    [Fact]
+    public async Task RngSelfTestJsonFileIsDeterministic()
+    {
+        string path = TemporaryJsonPath(); try { Assert.Equal(0, (await Invoke("rng-self-test", "--json", path)).ExitCode); using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path)); Assert.Equal(FoundationRngSelfTest.ExpectedEncoding, document.RootElement.GetProperty("canonicalEncodingHex").GetString()); } finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task RepositoryRulesetValidationMatchesLockedRegistry()
+    {
+        string directory = Path.Combine(FindRepositoryRoot(), "rulesets"); Invocation result = await Invoke("ruleset", "validate", "--directory", directory); using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(0, result.ExitCode); Assert.True(document.RootElement.GetProperty("success").GetBoolean()); Assert.Equal(1, document.RootElement.GetProperty("loadedRulesets").GetInt32());
+        Assert.Equal("0f04aa596563a6c706ad4177d7b48b19ea44f5ac62c1cd823203531568f33a4d", document.RootElement.GetProperty("registryDigest").GetString());
+    }
+
+    [Fact]
+    public async Task InvalidRulesetDirectoryAndArgumentsReturnNonzero()
+    {
+        Invocation missing = await Invoke("ruleset", "validate", "--directory", Path.Combine(Path.GetTempPath(), "definitely-missing-emergence-rulesets"));
+        Assert.Equal(1, missing.ExitCode); using JsonDocument document = JsonDocument.Parse(missing.Output); Assert.False(document.RootElement.GetProperty("success").GetBoolean()); Assert.NotEmpty(document.RootElement.GetProperty("issues").EnumerateArray());
+        Assert.Equal(2, (await Invoke("ruleset", "validate")).ExitCode);
+        Assert.Equal(2, (await Invoke("rng-self-test", "unexpected")).ExitCode);
+    }
+
     private static async Task<Invocation> Invoke(params string[] arguments)
     {
         StringWriter output = new(CultureInfo.InvariantCulture);
@@ -145,6 +181,8 @@ public sealed class CliIntegrationTests
     }
 
     private static string TemporaryJsonPath() => Path.Combine(Path.GetTempPath(), $"emergence-cli-test-{Guid.NewGuid():N}.json");
+
+    private static string FindRepositoryRoot() { DirectoryInfo? current = new(AppContext.BaseDirectory); while (current is not null && !File.Exists(Path.Combine(current.FullName, "ProjectEmergence.slnx"))) current = current.Parent; return current?.FullName ?? throw new InvalidOperationException("Repository root not found."); }
 
     private sealed record Invocation(int ExitCode, string Output, string Error);
 }

@@ -7,7 +7,7 @@ public static class ManifestIntegrityValidator
     public static VerificationResult Validate(string reviewRoot, ReviewManifest manifest)
     {
         List<string> errors = [];
-        if (manifest.SchemaVersion != 3 || string.IsNullOrWhiteSpace(manifest.Project) || manifest.Phase != "M0 Phase 0.2")
+        if (manifest.SchemaVersion != 4 || string.IsNullOrWhiteSpace(manifest.Project) || manifest.Phase != "M0 Phase 0.3")
         {
             errors.Add("Manifest schema header is invalid.");
         }
@@ -97,6 +97,7 @@ public static class ReviewPackVerifier
     private static readonly string[] ExpectedTestProjects =
     [
         "Emergence.Foundation.Tests",
+        "Emergence.Persistence.Tests",
         "Emergence.Architecture.Tests",
         "Emergence.Cli.IntegrationTests",
         "Emergence.ReviewPack.Tests",
@@ -135,19 +136,23 @@ public static class ReviewPackVerifier
         ValidatePreflight(reviewRoot, manifest, errors);
         ValidateTests(reviewRoot, manifest, errors);
 
-        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.2.0-dev", ".NETCoreApp,Version=v10.0");
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.3.0-dev", ".NETCoreApp,Version=v10.0");
         if (!BuildEvidenceValidator.IsPassed(build) || !BuildEvidenceValidator.IsPassed(manifest.Build))
         {
             errors.Add("Build evidence is not passed with zero warnings and errors.");
         }
         if (!Equivalent(build, manifest.Build)) errors.Add("Manifest build outcomes disagree with current build evidence.");
 
-        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.2.0-dev", ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.3.0-dev", ".NETCoreApp,Version=v10.0");
         if (!CliEvidenceValidator.IsPassed(cli) || !CliEvidenceValidator.IsPassed(manifest.Cli))
         {
-            errors.Add("CLI version, doctor, Phase 0.1 self-test, or Phase 0.2 domain self-test evidence is not passed.");
+            errors.Add("CLI version, doctor, Phase 0.1/0.2 self-tests, RNG self-test, or ruleset validation evidence is not passed.");
         }
         if (!Equivalent(cli, manifest.Cli)) errors.Add("Manifest CLI outcomes disagree with current CLI evidence.");
+
+        (RngEvidence rng, RulesetEvidence rulesets) = Phase03EvidenceValidator.Evaluate(reviewRoot);
+        if (rng.Status != EvidenceStatus.Passed || manifest.Rng?.Status != EvidenceStatus.Passed || !Equivalent(rng, manifest.Rng)) errors.Add($"RNG evidence is not passed or disagrees with the manifest: {rng.Detail}");
+        if (rulesets.Status != EvidenceStatus.Passed || manifest.Rulesets?.Status != EvidenceStatus.Passed || !Equivalent(rulesets, manifest.Rulesets)) errors.Add($"Ruleset evidence is not passed or disagrees with the manifest: {rulesets.Detail}");
 
         AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion);
         if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
@@ -326,6 +331,7 @@ public static class ReviewPackVerifier
             "docs/phase-scope.md",
             "docs/known-issues.md",
             "docs/phase-0.2-traceability.md",
+            "docs/phase-0.3-traceability.md",
             "docs/design/README.md",
         ];
         foreach (string relative in required)
@@ -383,9 +389,9 @@ public static class ReviewPackVerifier
                 && pair.First.ExpectedGitCommit.Equals(pair.Second.ExpectedGitCommit, StringComparison.OrdinalIgnoreCase));
 
     private static bool Equivalent(CliEvidence left, CliEvidence right) =>
-        new[] { left.Version, left.Doctor, left.Phase01SelfTest, left.Phase02DomainSelfTest }
-            .Zip(new[] { right.Version, right.Doctor, right.Phase01SelfTest, right.Phase02DomainSelfTest })
-            .All(pair => pair.First.Name == pair.Second.Name
+        new[] { left.Version, left.Doctor, left.Phase01SelfTest, left.Phase02DomainSelfTest, left.RngSelfTest, left.RulesetValidation }
+            .Zip(new[] { right.Version, right.Doctor, right.Phase01SelfTest, right.Phase02DomainSelfTest, right.RngSelfTest, right.RulesetValidation })
+            .All(pair => pair.First is not null && pair.Second is not null && pair.First.Name == pair.Second.Name
                 && pair.First.Command == pair.Second.Command
                 && pair.First.Status == pair.Second.Status
                 && pair.First.DataPath == pair.Second.DataPath
@@ -394,6 +400,19 @@ public static class ReviewPackVerifier
                 && pair.First.Version == pair.Second.Version
                 && pair.First.GitCommit.Equals(pair.Second.GitCommit, StringComparison.OrdinalIgnoreCase)
                 && pair.First.TargetFramework == pair.Second.TargetFramework);
+
+    private static bool Equivalent(RngEvidence left, RngEvidence? right) => right is not null
+        && left.Status == right.Status && left.SeedFixture == right.SeedFixture && left.Domain == right.Domain && left.Scope == right.Scope
+        && left.SampleIndex == right.SampleIndex && left.EncodedBytes == right.EncodedBytes && left.PrimaryBlock == right.PrimaryBlock
+        && left.Lane0 == right.Lane0 && left.BoundedResult == right.BoundedResult && left.DomainCatalogDigest == right.DomainCatalogDigest
+        && left.AlgorithmCatalogDigest == right.AlgorithmCatalogDigest && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
+
+    private static bool Equivalent(RulesetEvidence left, RulesetEvidence? right) => right is not null
+        && left.Status == right.Status && left.SourceDirectoryRole == right.SourceDirectoryRole && left.DiscoveredFileCount == right.DiscoveredFileCount
+        && left.LoadedDescriptorCount == right.LoadedDescriptorCount && left.Keys.SequenceEqual(right.Keys, StringComparer.Ordinal)
+        && left.AlgorithmCatalogDigest == right.AlgorithmCatalogDigest && left.DomainCatalogDigest == right.DomainCatalogDigest
+        && left.ConfigurationDigest == right.ConfigurationDigest && left.DescriptorDigest == right.DescriptorDigest
+        && left.RegistryDigest == right.RegistryDigest && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
 }
 
 public static class ReviewPackJson

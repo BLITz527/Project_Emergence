@@ -4,5 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Emergence.Foundation/Emergence.Foundation.csproj" />
+    <ProjectReference Include="../Emergence.Persistence/Emergence.Persistence.csproj" />
   </ItemGroup>
 </Project>

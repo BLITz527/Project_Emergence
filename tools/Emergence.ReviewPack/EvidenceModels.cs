@@ -85,7 +85,40 @@ public sealed record CliEvidence(
     CliCommandEvidence Version,
     CliCommandEvidence Doctor,
     CliCommandEvidence Phase01SelfTest,
-    CliCommandEvidence Phase02DomainSelfTest);
+    CliCommandEvidence Phase02DomainSelfTest,
+    CliCommandEvidence? RngSelfTest = null,
+    CliCommandEvidence? RulesetValidation = null);
+
+public sealed record RngEvidence(
+    string Command,
+    EvidenceStatus Status,
+    string SeedFixture,
+    string Domain,
+    string Scope,
+    string SampleIndex,
+    string EncodedBytes,
+    string PrimaryBlock,
+    ulong Lane0,
+    ulong BoundedResult,
+    string DomainCatalogDigest,
+    string AlgorithmCatalogDigest,
+    IReadOnlyList<string> EvidencePaths,
+    string Detail);
+
+public sealed record RulesetEvidence(
+    string Command,
+    EvidenceStatus Status,
+    string SourceDirectoryRole,
+    int DiscoveredFileCount,
+    int LoadedDescriptorCount,
+    IReadOnlyList<string> Keys,
+    string AlgorithmCatalogDigest,
+    string DomainCatalogDigest,
+    string ConfigurationDigest,
+    string DescriptorDigest,
+    string RegistryDigest,
+    IReadOnlyList<string> EvidencePaths,
+    string Detail);
 
 public sealed record ReviewFileEntry(string Path, long Bytes, string Sha256);
 
@@ -112,7 +145,9 @@ public sealed record ReviewManifest(
     AppEvidence App,
     PackageEvidence Package,
     IReadOnlyList<ReviewFileEntry> Files,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    RngEvidence? Rng = null,
+    RulesetEvidence? Rulesets = null);
 
 public sealed record VerificationResult(
     bool Success,

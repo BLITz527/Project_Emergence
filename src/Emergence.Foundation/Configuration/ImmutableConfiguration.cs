@@ -14,9 +14,12 @@ public sealed class ImmutableConfiguration : IEquatable<ImmutableConfiguration>
 
     public ImmutableConfiguration(ConfigurationSchemaId schemaId, SemanticVersion schemaVersion, IEnumerable<ConfigurationEntry> entries)
     {
+        if (schemaId.IsEmpty) throw new ArgumentException("Configuration schema ID cannot be empty.", nameof(schemaId));
         ArgumentNullException.ThrowIfNull(entries);
-        ConfigurationEntry[] sorted = entries.OrderBy(static entry => entry.Key).ToArray();
-        if (sorted.Any(static entry => entry is null)) throw new ArgumentException("Configuration entries cannot be null.", nameof(entries));
+        ConfigurationEntry[] source = entries.ToArray();
+        if (source.Any(static entry => entry is null)) throw new ArgumentException("Configuration entries cannot be null.", nameof(entries));
+        if (source.Any(static entry => entry.Key.IsEmpty)) throw new ArgumentException("Default configuration keys are not allowed.", nameof(entries));
+        ConfigurationEntry[] sorted = source.OrderBy(static entry => entry.Key).ToArray();
         if (sorted.Select(static entry => entry.Key).Distinct().Count() != sorted.Length) throw new ArgumentException("Duplicate configuration keys are not allowed.", nameof(entries));
         SchemaId = schemaId;
         SchemaVersion = schemaVersion;

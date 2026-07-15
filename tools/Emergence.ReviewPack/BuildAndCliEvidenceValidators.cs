@@ -57,7 +57,7 @@ public static class BuildEvidenceValidator
         {
             AssemblyInventoryEntry? entry = entries.FirstOrDefault(item => item.Assembly == assembly && item.Configuration == "Release");
             if (entry is null) { errors.Add($"Release assembly is missing from inventory: {assembly}."); continue; }
-            if (entry.AssemblyVersion != "0.2.0.0" || !entry.InformationalVersion.StartsWith(expectedVersion + "+", StringComparison.Ordinal)
+            if (entry.AssemblyVersion != "0.3.0.0" || !entry.InformationalVersion.StartsWith(expectedVersion + "+", StringComparison.Ordinal)
                 || !entry.GitCommit.Equals(expectedCommit, StringComparison.OrdinalIgnoreCase) || entry.TargetFramework != expectedFramework)
             {
                 errors.Add($"Assembly metadata mismatch: {assembly}.");
@@ -83,11 +83,22 @@ public static class CliEvidenceValidator
         CliCommandEvidence doctor = ReadDoctor(reviewRoot, expectedCommit, expectedVersion, expectedFramework);
         CliCommandEvidence phase01 = ReadSelfTest(reviewRoot, "self-test", "cli/self-test.json", "cli/self-test.log", "sha256", Phase01Vector);
         CliCommandEvidence phase02 = ReadDomainSelfTest(reviewRoot);
-        return new(version, doctor, phase01, phase02);
+        CliCommandEvidence rng = ReadSuccessReport(reviewRoot, "rng-self-test", "cli/rng-self-test.json", "cli/rng-self-test.log");
+        CliCommandEvidence rulesets = ReadSuccessReport(reviewRoot, "ruleset-validation", "cli/ruleset-validation.json", "cli/ruleset-validation.log");
+        return new(version, doctor, phase01, phase02, rng, rulesets);
     }
 
     public static bool IsPassed(CliEvidence evidence) =>
-        new[] { evidence.Version, evidence.Doctor, evidence.Phase01SelfTest, evidence.Phase02DomainSelfTest }.All(static outcome => outcome.Status == EvidenceStatus.Passed && outcome.Success);
+        new[] { evidence.Version, evidence.Doctor, evidence.Phase01SelfTest, evidence.Phase02DomainSelfTest, evidence.RngSelfTest, evidence.RulesetValidation }.All(static outcome => outcome is not null && outcome.Status == EvidenceStatus.Passed && outcome.Success);
+
+    private static CliCommandEvidence ReadSuccessReport(string root, string name, string data, string log)
+    {
+        List<string> errors = []; string path = Resolve(root, data);
+        try { using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path)); if (!document.RootElement.TryGetProperty("success", out JsonElement success) || success.ValueKind != JsonValueKind.True) errors.Add($"CLI {name} does not report success=true."); }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException) { errors.Add($"CLI {name} is invalid: {exception.Message}"); }
+        if (!File.Exists(Resolve(root, log))) errors.Add($"CLI {name} log is missing.");
+        return Command(name, $"emergence {name} --json", data, log, errors, string.Empty, string.Empty, string.Empty);
+    }
 
     private static CliCommandEvidence ReadVersion(string root, string commit, string version, string framework)
     {

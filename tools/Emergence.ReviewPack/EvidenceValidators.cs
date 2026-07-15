@@ -34,7 +34,7 @@ public static class AppEvidenceValidator
             errors.Add("Normal-shell screenshot is missing or empty.");
         }
 
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.2.0-dev", requirePackagedLayout: false);
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.3.0-dev", requirePackagedLayout: false);
         errors.AddRange(doctorSummary.Errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
         return new AppEvidence(
@@ -95,7 +95,10 @@ public static class PackageEvidenceValidator
             errors.Add("Packaged smoke marker is missing.");
         }
 
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.2.0-dev", requirePackagedLayout: true);
+        string ruleset = Path.Combine(packageRoot, "rulesets", "foundation-reference.ruleset.json");
+        string[] rulesetFiles = Directory.Exists(packageRoot) ? Directory.EnumerateFiles(packageRoot, "*.ruleset.json", SearchOption.AllDirectories).ToArray() : [];
+        if (rulesetFiles.Length != 1 || !string.Equals(rulesetFiles[0], ruleset, StringComparison.OrdinalIgnoreCase)) errors.Add("Package does not contain exactly one rulesets/foundation-reference.ruleset.json.");
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.3.0-dev", requirePackagedLayout: true);
         errors.AddRange(doctorSummary.Errors);
         int packageFileCount = ValidatePackageManifest(packageRoot, packageManifest, errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
@@ -243,6 +246,9 @@ internal static class DoctorEvidence
                 }
             }
             string[] requiredChecks = ["process.architecture", "runtime.dotnet", "runtime.mode", "path.temp", "path.localAppData", "runtime.layout"];
+            if (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+                requiredChecks = [.. requiredChecks, "runtime.godot", "ruleset.registry", "rng.algorithm", "rng.domains"];
             if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
             {
                 errors.Add("Doctor JSON has no structured checks array.");

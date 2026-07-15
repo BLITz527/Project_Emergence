@@ -15,6 +15,7 @@ public sealed class AlgorithmCatalog : IEquatable<AlgorithmCatalog>
     {
         ArgumentNullException.ThrowIfNull(entries);
         AlgorithmReference[] sorted = entries.OrderBy(static entry => entry.Id).ToArray();
+        if (sorted.Any(static entry => entry.IsEmpty)) throw new ArgumentException("Default AlgorithmReference entries are not allowed.", nameof(entries));
         if (sorted.Select(static entry => entry.Id).Distinct().Count() != sorted.Length) throw new ArgumentException("Duplicate AlgorithmId entries are not allowed.", nameof(entries));
         _entries = Array.AsReadOnly(sorted);
         Digest = ComputeDigest(sorted);
@@ -30,6 +31,17 @@ public sealed class AlgorithmCatalog : IEquatable<AlgorithmCatalog>
         AlgorithmReference.Parse("foundation.logical-time@1.0.0"),
         AlgorithmReference.Parse("foundation.exact-quantity@1.0.0"),
         AlgorithmReference.Parse("foundation.immutable-configuration@1.0.0"),
+    ]);
+
+    public static AlgorithmCatalog Phase03 { get; } = new(
+    [
+        .. Phase02.Entries,
+        AlgorithmReference.Parse("foundation.rng-seed@1.0.0"),
+        AlgorithmReference.Parse("foundation.rng-addressed-sha256@1.0.0"),
+        AlgorithmReference.Parse("foundation.rng-bounded-uint64@1.0.0"),
+        AlgorithmReference.Parse("foundation.rng-domain-catalog@1.0.0"),
+        AlgorithmReference.Parse("foundation.ruleset-manifest@1.0.0"),
+        AlgorithmReference.Parse("foundation.ruleset-registry@1.0.0"),
     ]);
 
     public bool Equals(AlgorithmCatalog? other) => other is not null && _entries.SequenceEqual(other._entries);
