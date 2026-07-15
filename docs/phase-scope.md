@@ -1,7 +1,7 @@
-# Phase 0.2 scope
+# Phase 0.3 scope
 
-Phase 0.2 implements value-only deterministic foundations: stable and typed 128-bit IDs; world/branch identity records; UInt128 logical time and checked sequences; UInt64 matter/energy quanta; SHA-256 values; canonical hash encoding V1; semantic algorithm identities/catalog; bounded immutable configuration; structured issues/results; exact JSON; and a domain self-test.
+Phase 0.3 preserves the accepted value foundations and adds an explicit 256-bit seed, typed RNG domains/scopes/sample addresses, stateless SHA-256 addressed sampling, unbiased bounded UInt64 sampling, immutable domain and algorithm catalogs, strict digest-bound ruleset descriptors and registry, and a bounded untrusted top-level ruleset-directory loader. One tracked nonbiological foundation reference ruleset validates the complete path.
 
-All implementation lives in the headless Foundation boundary. Typed `CellId`, `OrganismId`, and similar names are compile-time values only.
+Pure values remain in the headless Foundation boundary. Filesystem discovery is isolated in Persistence. Typed `CellId`, `OrganismId`, and similar names are compile-time values only.
 
-Out of scope are world or entity state, schedulers, biological RNG, genomes, rulesets, cells, regions, fields, metabolism, movement, ecology, persistence of biological state, adaptive fidelity, threading kernels, mod execution, and UI redesign. No biological simulation exists.
+Out of scope are world/session state, schedulers, saves, biological RNG domains, genomes, cells, regions, fields, metabolism, mutation, movement, ecology, ruleset migrations/inheritance, plugins, scripting, network retrieval, adaptive fidelity, and UI redesign. No biological simulation exists.

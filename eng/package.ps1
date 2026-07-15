@@ -62,4 +62,7 @@ try {
     if ($null -eq $previousGitCommit) { Remove-Item Env:GitCommit -ErrorAction SilentlyContinue }
     else { $env:GitCommit = $previousGitCommit }
 }
+$rulesetOutput = Join-Path $package 'rulesets'
+New-Item -ItemType Directory -Path $rulesetOutput -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $root 'rulesets\foundation-reference.ruleset.json') -Destination (Join-Path $rulesetOutput 'foundation-reference.ruleset.json')
 & (Join-Path $PSScriptRoot 'verify-package.ps1') -PackageDirectory $package -ArtifactsRoot $evidence

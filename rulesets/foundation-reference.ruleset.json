@@ -1,0 +1,58 @@
+{
+  "formatVersion": "1.0.0",
+  "key": "00000000000000000000000000000001@1.0.0",
+  "displayName": "Project Emergence Foundation Reference",
+  "algorithms": {
+    "entries": [
+      "foundation.canonical-hash@1.0.0",
+      "foundation.exact-quantity@1.0.0",
+      "foundation.immutable-configuration@1.0.0",
+      "foundation.logical-time@1.0.0",
+      "foundation.rng-addressed-sha256@1.0.0",
+      "foundation.rng-bounded-uint64@1.0.0",
+      "foundation.rng-domain-catalog@1.0.0",
+      "foundation.rng-seed@1.0.0",
+      "foundation.ruleset-manifest@1.0.0",
+      "foundation.ruleset-registry@1.0.0",
+      "foundation.stable-id@1.0.0"
+    ],
+    "digest": "77ebbb568d4c72fcb1cdc7ace7dbc29b3d9e38f5e65e4a44f4a7d8eb9e050b20"
+  },
+  "rngDomains": {
+    "entries": [
+      "foundation.reference",
+      "foundation.ruleset-validation",
+      "foundation.self-test"
+    ],
+    "digest": "03d1b76efaa64416b934e5a6e37b194ea1ca11199fe1932989bd493db7f545c7"
+  },
+  "configuration": {
+    "schemaId": "foundation.ruleset",
+    "schemaVersion": "1.0.0",
+    "entries": [
+      {
+        "key": "foundation.reference-mode",
+        "value": {
+          "kind": "Boolean",
+          "value": true
+        }
+      },
+      {
+        "key": "foundation.rng-policy",
+        "value": {
+          "kind": "String",
+          "value": "addressed"
+        }
+      },
+      {
+        "key": "foundation.strict-validation",
+        "value": {
+          "kind": "Boolean",
+          "value": true
+        }
+      }
+    ],
+    "digest": "d538f97c802dc0a5338bfd696ac40c115e106c21727e69e11a6fe26a9e0e58d2"
+  },
+  "digest": "365db3c8a32ee157ad94b2e3051a8ed4eda28c0863999234b3e9acc1dd846086"
+}

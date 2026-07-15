@@ -11,6 +11,10 @@ if (-not $ArtifactsRoot) { $ArtifactsRoot = $package }
 $evidence = New-ArtifactDirectory $ArtifactsRoot
 $executable = Join-Path $package 'ProjectEmergence.exe'
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) { throw "Expected executable is missing: $executable" }
+$rulesetFiles = @(Get-ChildItem -LiteralPath $package -File -Recurse | Where-Object { $_.Name.EndsWith('.ruleset.json', [StringComparison]::Ordinal) })
+if ($rulesetFiles.Count -ne 1 -or $rulesetFiles[0].FullName -ne (Join-Path $package 'rulesets\foundation-reference.ruleset.json')) {
+    throw 'Package must contain exactly one rulesets/foundation-reference.ruleset.json.'
+}
 
 function Invoke-PackagedMode {
     param(

@@ -8,14 +8,25 @@ public readonly record struct AlgorithmId : IComparable<AlgorithmId>
         Value = value;
     }
     public string Value { get; }
+    public bool IsEmpty => string.IsNullOrEmpty(Value);
     public static AlgorithmId Parse(string text) => new(text);
     public static bool TryParse(string? text, out AlgorithmId value) { try { value = new(text!); return true; } catch (ArgumentException) { value = default; return false; } }
     public int CompareTo(AlgorithmId other) => string.Compare(Value, other.Value, StringComparison.Ordinal);
     public override string ToString() => Value ?? string.Empty;
 }
 
-public readonly record struct AlgorithmReference(AlgorithmId Id, SemanticVersion Version) : IComparable<AlgorithmReference>
+public readonly record struct AlgorithmReference : IComparable<AlgorithmReference>
 {
+    public AlgorithmReference(AlgorithmId id, SemanticVersion version)
+    {
+        if (id.IsEmpty) throw new ArgumentException("Algorithm ID cannot be empty.", nameof(id));
+        Id = id;
+        Version = version;
+    }
+
+    public AlgorithmId Id { get; }
+    public SemanticVersion Version { get; }
+    public bool IsEmpty => Id.IsEmpty;
     public static AlgorithmReference Parse(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -25,7 +36,7 @@ public readonly record struct AlgorithmReference(AlgorithmId Id, SemanticVersion
     }
     public static bool TryParse(string? text, out AlgorithmReference value) { try { value = Parse(text!); return true; } catch (Exception exception) when (exception is ArgumentException or FormatException) { value = default; return false; } }
     public int CompareTo(AlgorithmReference other) { int result = Id.CompareTo(other.Id); return result != 0 ? result : Version.CompareTo(other.Version); }
-    public override string ToString() => $"{Id}@{Version}";
+    public override string ToString() => IsEmpty ? string.Empty : $"{Id}@{Version}";
 }
 
 internal static class DottedName

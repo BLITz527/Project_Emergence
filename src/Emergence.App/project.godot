@@ -1,5 +1,5 @@
 ; Engine configuration file.
-; Project Emergence Phase 0.2 foundational domain shell.
+; Project Emergence Phase 0.3 deterministic RNG and ruleset shell.
 
 config_version=5
 

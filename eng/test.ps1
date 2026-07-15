@@ -12,6 +12,7 @@ $output = New-ArtifactDirectory $ArtifactsRoot
 
 $projects = @(
     'tests\Emergence.Foundation.Tests\Emergence.Foundation.Tests.csproj',
+    'tests\Emergence.Persistence.Tests\Emergence.Persistence.Tests.csproj',
     'tests\Emergence.Architecture.Tests\Emergence.Architecture.Tests.csproj',
     'tests\Emergence.Cli.IntegrationTests\Emergence.Cli.IntegrationTests.csproj',
     'tests\Emergence.ReviewPack.Tests\Emergence.ReviewPack.Tests.csproj'

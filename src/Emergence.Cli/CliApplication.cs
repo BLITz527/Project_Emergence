@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 using Emergence.Foundation;
+using Emergence.Persistence.Rulesets;
 
 namespace Emergence.Cli;
 
@@ -26,6 +28,8 @@ public static class CliApplication
             "doctor" => Task.FromResult(Doctor(args, output, error)),
             "self-test" => Task.FromResult(SelfTest(args, output, error)),
             "domain-self-test" => Task.FromResult(DomainSelfTest(args, output, error)),
+            "rng-self-test" => Task.FromResult(RngSelfTest(args, output, error)),
+            "ruleset" => Task.FromResult(Ruleset(args, output, error)),
             _ => Task.FromResult(Invalid(args[0], error)),
         };
     }
@@ -84,6 +88,39 @@ public static class CliApplication
         return WriteReport(report, path, output, report.Success);
     }
 
+    private static int RngSelfTest(string[] args, TextWriter output, TextWriter error)
+    {
+        if (!TryJsonPath(args, out string? path, out string? message)) return UsageError(message!, error);
+        FoundationRngSelfTestReport report = FoundationRngSelfTest.Run();
+        return WriteReport(report, path, output, report.Success);
+    }
+
+    private static int Ruleset(string[] args, TextWriter output, TextWriter error)
+    {
+        if (args.Length is not (4 or 6) || args[1] != "validate" || args[2] != "--directory" || string.IsNullOrWhiteSpace(args[3])
+            || (args.Length == 6 && (args[4] != "--json" || string.IsNullOrWhiteSpace(args[5]))))
+            return UsageError("ruleset validate requires '--directory <path>' and optionally '--json <path>'.", error);
+        string directory;
+        try { directory = Path.GetFullPath(args[3]); }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException) { directory = args[3]; }
+        string? jsonPath = args.Length == 6 ? args[5] : null;
+        RulesetDirectoryLoadResult load = new RulesetDirectoryLoader().Load(directory);
+        Emergence.Foundation.Rulesets.RulesetDescriptor? descriptor = load.Registry?.Entries.Count == 1 ? load.Registry.Entries[0] : null;
+        List<DiagnosticCheck> checks = load.Success
+            ? [new("ruleset.registry", DiagnosticSeverity.Success, "Ruleset registry validation", $"{load.Registry!.Entries.Count} descriptor(s)")]
+            : load.Issues.Select(issue => new DiagnosticCheck(issue.Code, DiagnosticSeverity.Failure, issue.FileName.Length == 0 ? "Ruleset validation" : issue.FileName, issue.Reason)).ToList();
+        RulesetValidationReport report = new(
+            load.Success, directory, load.DiscoveredFiles, load.Registry?.Entries.Count ?? 0,
+            load.Registry?.Entries.Select(static x => x.Key.ToString()).ToArray() ?? [],
+            descriptor?.Algorithms.Digest.ToString() ?? string.Empty,
+            descriptor?.RngDomains.Digest.ToString() ?? string.Empty,
+            descriptor?.Configuration.Digest.ToString() ?? string.Empty,
+            descriptor?.Digest.ToString() ?? string.Empty,
+            load.Registry?.Digest.ToString() ?? string.Empty,
+            load.Issues, checks);
+        return WriteReport(report, jsonPath, output, report.Success);
+    }
+
     private static int WriteReport<T>(T report, string? path, TextWriter output, bool success)
     {
         string json = JsonDefaults.Serialize(report);
@@ -134,6 +171,21 @@ public static class CliApplication
     private static void WriteHelp(TextWriter writer)
     {
         writer.WriteLine("Project Emergence foundation CLI");
-        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test> [--json <path>]");
+        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test|rng-self-test> [--json <path>]");
+        writer.WriteLine("       emergence ruleset validate --directory <path> [--json <path>]");
     }
 }
+
+public sealed record RulesetValidationReport(
+    [property: JsonPropertyOrder(0)] bool Success,
+    [property: JsonPropertyOrder(1)] string Directory,
+    [property: JsonPropertyOrder(2)] IReadOnlyList<string> DiscoveredFiles,
+    [property: JsonPropertyOrder(3)] int LoadedRulesets,
+    [property: JsonPropertyOrder(4)] IReadOnlyList<string> RulesetKeys,
+    [property: JsonPropertyOrder(5)] string AlgorithmCatalogDigest,
+    [property: JsonPropertyOrder(6)] string DomainCatalogDigest,
+    [property: JsonPropertyOrder(7)] string ConfigurationDigest,
+    [property: JsonPropertyOrder(8)] string DescriptorDigest,
+    [property: JsonPropertyOrder(9)] string RegistryDigest,
+    [property: JsonPropertyOrder(10)] IReadOnlyList<RulesetLoadIssue> Issues,
+    [property: JsonPropertyOrder(11)] IReadOnlyList<DiagnosticCheck> Checks);

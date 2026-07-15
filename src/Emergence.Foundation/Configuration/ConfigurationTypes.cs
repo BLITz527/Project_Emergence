@@ -9,6 +9,7 @@ public readonly record struct ConfigurationSchemaId : IComparable<ConfigurationS
 {
     public ConfigurationSchemaId(string value) { DottedName.Validate(value, 96, 32, nameof(value)); Value = value; }
     public string Value { get; }
+    public bool IsEmpty => string.IsNullOrEmpty(Value);
     public static ConfigurationSchemaId Parse(string text) => new(text);
     public static bool TryParse(string? text, out ConfigurationSchemaId value) { try { value = new(text!); return true; } catch (ArgumentException) { value = default; return false; } }
     public int CompareTo(ConfigurationSchemaId other) => string.Compare(Value, other.Value, StringComparison.Ordinal);
@@ -19,6 +20,7 @@ public readonly record struct ConfigurationKey : IComparable<ConfigurationKey>
 {
     public ConfigurationKey(string value) { DottedName.Validate(value, 128, 48, nameof(value)); Value = value; }
     public string Value { get; }
+    public bool IsEmpty => string.IsNullOrEmpty(Value);
     public static ConfigurationKey Parse(string text) => new(text);
     public static bool TryParse(string? text, out ConfigurationKey value) { try { value = new(text!); return true; } catch (ArgumentException) { value = default; return false; } }
     public int CompareTo(ConfigurationKey other) => string.Compare(Value, other.Value, StringComparison.Ordinal);
