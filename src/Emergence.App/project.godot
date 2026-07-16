@@ -1,5 +1,5 @@
 ; Engine configuration file.
-; Project Emergence Phase 0.3 deterministic RNG and ruleset shell.
+; Project Emergence Phase 0.4 world-session and deterministic-scheduler shell.
 
 config_version=5
 

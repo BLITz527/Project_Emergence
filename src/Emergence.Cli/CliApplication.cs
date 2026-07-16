@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using Emergence.Foundation;
 using Emergence.Persistence.Rulesets;
+using Emergence.Simulation;
 
 namespace Emergence.Cli;
 
@@ -29,6 +30,7 @@ public static class CliApplication
             "self-test" => Task.FromResult(SelfTest(args, output, error)),
             "domain-self-test" => Task.FromResult(DomainSelfTest(args, output, error)),
             "rng-self-test" => Task.FromResult(RngSelfTest(args, output, error)),
+            "session-self-test" => Task.FromResult(SessionSelfTestCommand(args, output, error)),
             "ruleset" => Task.FromResult(Ruleset(args, output, error)),
             _ => Task.FromResult(Invalid(args[0], error)),
         };
@@ -92,6 +94,13 @@ public static class CliApplication
     {
         if (!TryJsonPath(args, out string? path, out string? message)) return UsageError(message!, error);
         FoundationRngSelfTestReport report = FoundationRngSelfTest.Run();
+        return WriteReport(report, path, output, report.Success);
+    }
+
+    private static int SessionSelfTestCommand(string[] args, TextWriter output, TextWriter error)
+    {
+        if (!TryJsonPath(args, out string? path, out string? message)) return UsageError(message!, error);
+        SessionSelfTestReport report = SessionSelfTest.Run();
         return WriteReport(report, path, output, report.Success);
     }
 
@@ -171,7 +180,7 @@ public static class CliApplication
     private static void WriteHelp(TextWriter writer)
     {
         writer.WriteLine("Project Emergence foundation CLI");
-        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test|rng-self-test> [--json <path>]");
+        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test|rng-self-test|session-self-test> [--json <path>]");
         writer.WriteLine("       emergence ruleset validate --directory <path> [--json <path>]");
     }
 }

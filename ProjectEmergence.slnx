@@ -12,6 +12,9 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.csproj" />
+    <Project Path="tests/Emergence.Model.Tests/Emergence.Model.Tests.csproj" />
+    <Project Path="tests/Emergence.Simulation.Tests/Emergence.Simulation.Tests.csproj" />
+    <Project Path="tests/Emergence.Presentation.Contracts.Tests/Emergence.Presentation.Contracts.Tests.csproj" />
     <Project Path="tests/Emergence.Persistence.Tests/Emergence.Persistence.Tests.csproj" />
     <Project Path="tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.csproj" />
     <Project Path="tests/Emergence.Cli.IntegrationTests/Emergence.Cli.IntegrationTests.csproj" />

@@ -8,10 +8,14 @@ Repository/toolchain, headless diagnostics, Godot shell, packaging, tests, impor
 
 Accepted scope: typed IDs and identities, wide logical time and checked counters, exact matter/energy quanta, SHA-256 and canonical encoding, semantic algorithm catalog, immutable bounded configuration, structured results, durable JSON, domain vectors, and independently parsed build/CLI evidence.
 
-## Phase 0.3 — deterministic RNG and ruleset registry
+## Phase 0.3 — deterministic RNG and ruleset registry (accepted)
 
-Active scope: explicit 256-bit seeds, typed addressed RNG, exact golden vectors, unbiased bounded sampling, domain/algorithm catalogs, strict immutable ruleset manifests and registry, bounded Persistence loading, one nonbiological reference ruleset, and independent source/package evidence.
+Accepted scope: explicit 256-bit seeds, typed addressed RNG, exact golden vectors, unbiased bounded sampling, domain/algorithm catalogs, strict immutable ruleset manifests and registry, bounded Persistence loading, one nonbiological reference ruleset, and independent source/package evidence.
+
+## Phase 0.4 — world session and deterministic scheduler
+
+Active scope: immutable session definition, authoritative single-owner in-memory session, fixed six-phase scheduler graph, bounded command processors, transactional event commitment, deterministic state/trace/EventId vectors, immutable presentation snapshots, and actual paused-at-zero App consumption. Technical system order is not biological fairness, and no biology is implemented.
 
 ## Deferred
 
-Phase 0.4 owns world-session and scheduler foundations. Phase 0.5 owns coherent snapshots and save/load foundations. Biological implementation starts only in later accepted milestones.
+Phase 0.5 owns coherent persistent snapshots, atomic save/load, recovery, and complete RNG/session persistence. Branching, rollback, long-term history, and biological implementation remain later work.

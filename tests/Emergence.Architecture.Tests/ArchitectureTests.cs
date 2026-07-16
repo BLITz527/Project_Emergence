@@ -18,6 +18,9 @@ public sealed class ArchitectureTests
         "src/Emergence.Cli/Emergence.Cli.csproj",
         "src/Emergence.App/Emergence.App.csproj",
         "tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.csproj",
+        "tests/Emergence.Model.Tests/Emergence.Model.Tests.csproj",
+        "tests/Emergence.Simulation.Tests/Emergence.Simulation.Tests.csproj",
+        "tests/Emergence.Presentation.Contracts.Tests/Emergence.Presentation.Contracts.Tests.csproj",
         "tests/Emergence.Persistence.Tests/Emergence.Persistence.Tests.csproj",
         "tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.csproj",
         "tests/Emergence.Cli.IntegrationTests/Emergence.Cli.IntegrationTests.csproj",
@@ -60,13 +63,13 @@ public sealed class ArchitectureTests
         {
             ["Emergence.Foundation"] = [],
             ["Emergence.Model"] = ["Emergence.Foundation"],
-            ["Emergence.Simulation"] = ["Emergence.Foundation", "Emergence.Model"],
+            ["Emergence.Simulation"] = ["Emergence.Foundation", "Emergence.Model", "Emergence.Presentation.Contracts"],
             ["Emergence.Analytics"] = ["Emergence.Foundation", "Emergence.Model"],
             ["Emergence.History"] = ["Emergence.Foundation", "Emergence.Model"],
             ["Emergence.Persistence"] = ["Emergence.Foundation"],
-            ["Emergence.Presentation.Contracts"] = ["Emergence.Foundation"],
-            ["Emergence.Cli"] = ["Emergence.Foundation", "Emergence.Persistence"],
-            ["Emergence.App"] = ["Emergence.Foundation", "Emergence.Persistence", "Emergence.Presentation.Contracts"],
+            ["Emergence.Presentation.Contracts"] = ["Emergence.Foundation", "Emergence.Model"],
+            ["Emergence.Cli"] = ["Emergence.Foundation", "Emergence.Model", "Emergence.Simulation", "Emergence.Persistence", "Emergence.Presentation.Contracts"],
+            ["Emergence.App"] = ["Emergence.Foundation", "Emergence.Model", "Emergence.Simulation", "Emergence.Persistence", "Emergence.Presentation.Contracts"],
         };
 
         foreach ((string project, string[] allowed) in approved)
@@ -127,11 +130,13 @@ public sealed class ArchitectureTests
     }
 
     [Fact]
-    public void ModelStillContainsOnlyItsMarker()
+    public void ModelContainsSessionContractsWithoutBiologicalEntities()
     {
-        string[] files = Directory.GetFiles(At("src/Emergence.Model"), "*.cs", SearchOption.TopDirectoryOnly);
-        Assert.Single(files);
-        Assert.Contains("AssemblyMarker", File.ReadAllText(files[0]), StringComparison.Ordinal);
+        string source = string.Join("\n", Directory.GetFiles(At("src/Emergence.Model"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
+        Assert.Contains("class WorldSessionDefinition", source, StringComparison.Ordinal);
+        Assert.Contains("class SchedulerGraph", source, StringComparison.Ordinal);
+        string[] prohibited = ["class Cell", "class Organism", "class Genome", "class Region", "Metabolism", "Reproduction", "Ecology"];
+        Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -182,6 +187,58 @@ public sealed class ArchitectureTests
         string testScript = File.ReadAllText(At("eng/test.ps1"));
         string reviewSource = File.ReadAllText(At("tools/Emergence.ReviewPack/ReviewPackApplication.cs"));
         Assert.All(testProjects, project => { Assert.Contains(project, testScript, StringComparison.Ordinal); Assert.Contains(project, reviewSource, StringComparison.Ordinal); });
+    }
+
+    [Fact]
+    public void SessionAndSchedulerContainNoNondeterministicOrParallelExecutionInputs()
+    {
+        string source = string.Join("\n", new[] { "src/Emergence.Model", "src/Emergence.Simulation" }
+            .SelectMany(directory => Directory.GetFiles(At(directory), "*.cs", SearchOption.AllDirectories))
+            .Select(File.ReadAllText));
+        string[] prohibited =
+        [
+            "DateTime.Now", "DateTime.UtcNow", "Stopwatch", "Environment.TickCount", "Guid.NewGuid", "System.Random",
+            "Random.Shared", "Task.Run", "Parallel.", "AsParallel", "ThreadPool", "Assembly.GetTypes", "Activator.CreateInstance",
+        ];
+        Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SessionOwnershipAndPresentationBoundariesAreExplicit()
+    {
+        string simulation = string.Join("\n", Directory.GetFiles(At("src/Emergence.Simulation"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
+        string presentation = string.Join("\n", Directory.GetFiles(At("src/Emergence.Presentation.Contracts"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
+        Assert.Contains("class WorldSession", simulation, StringComparison.Ordinal);
+        Assert.DoesNotContain("static WorldSession Current", simulation, StringComparison.Ordinal);
+        Assert.DoesNotContain("static CommandProcessorRegistry Current", simulation, StringComparison.Ordinal);
+        Assert.DoesNotContain("static CommandProcessorRegistry Instance", simulation, StringComparison.Ordinal);
+        Assert.DoesNotContain("static SchedulerGraph Current", simulation, StringComparison.Ordinal);
+        Assert.DoesNotContain("static SchedulerGraph Instance", simulation, StringComparison.Ordinal);
+        Assert.Contains("HasBiologicalState => false", presentation, StringComparison.Ordinal);
+        Assert.DoesNotContain("using Godot", presentation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AppFrameCallbacksCannotAdvanceLogicalTime()
+    {
+        string source = File.ReadAllText(At("src/Emergence.App/MainShell.cs"));
+        Assert.DoesNotContain("override void _Process", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("override void _PhysicsProcess", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("StepOneTick", source, StringComparison.Ordinal);
+        Assert.Contains("SessionPresentationSnapshot", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Phase04IntroducesNoSaveFormatOrBiologicalNamespace()
+    {
+        string[] sourceFiles = new[] { "src/Emergence.Model", "src/Emergence.Simulation", "src/Emergence.Presentation.Contracts" }
+            .SelectMany(directory => Directory.GetFiles(At(directory), "*.cs", SearchOption.AllDirectories)).ToArray();
+        Assert.DoesNotContain(sourceFiles, path => path.Contains("Persistence", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(sourceFiles, path => path.Contains("Biology", StringComparison.OrdinalIgnoreCase));
+        string source = string.Join("\n", sourceFiles.Select(File.ReadAllText));
+        Assert.DoesNotContain("SaveAsync", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("LoadWorld", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("namespace Emergence.Biology", source, StringComparison.Ordinal);
     }
 
     private static IEnumerable<string> ProjectReferences(string relativeProject)

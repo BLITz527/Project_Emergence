@@ -15,7 +15,7 @@ public sealed class CliIntegrationTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Product: Project Emergence", result.Output, StringComparison.Ordinal);
         Assert.Contains("Version:", result.Output, StringComparison.Ordinal);
-        Assert.Contains("Version: 0.3.0-dev", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Version: 0.4.0-dev", result.Output, StringComparison.Ordinal);
         Assert.Contains("Target framework:", result.Output, StringComparison.Ordinal);
         Assert.Contains("Runtime:", result.Output, StringComparison.Ordinal);
     }
@@ -170,6 +170,39 @@ public sealed class CliIntegrationTests
         Assert.Equal(1, missing.ExitCode); using JsonDocument document = JsonDocument.Parse(missing.Output); Assert.False(document.RootElement.GetProperty("success").GetBoolean()); Assert.NotEmpty(document.RootElement.GetProperty("issues").EnumerateArray());
         Assert.Equal(2, (await Invoke("ruleset", "validate")).ExitCode);
         Assert.Equal(2, (await Invoke("rng-self-test", "unexpected")).ExitCode);
+    }
+
+    [Fact]
+    public async Task SessionSelfTestMatchesEveryPhase04GoldenValue()
+    {
+        Invocation result = await Invoke("session-self-test");
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement;
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(root.GetProperty("success").GetBoolean());
+        Assert.Equal("0.4.0-dev", root.GetProperty("version").GetString());
+        Assert.Equal("bbaebfc88087fc04ab024d2505b9a50ed7e7a2f21cd34a18eb4e83d56cb1a418", root.GetProperty("algorithmCatalogDigest").GetString());
+        Assert.Equal("3ddcda2140c7fed29e2af548b8c71edf988c12a7f65ecdfd73d47c1bab33067a", root.GetProperty("schedulerGraphDigest").GetString());
+        Assert.Equal("fcc91152d376a93f558f44c2e76eb8493ab61fb519d598faa8782992d8cd3456", root.GetProperty("sessionDefinitionDigest").GetString());
+        Assert.Equal("58f7313342790881b43875ba1bf3461e2aa8b1dd4b23d19278dd32cd973a7491", root.GetProperty("sessionTraceDigest").GetString());
+        Assert.Equal("6de0d3bee6901dfdd83b080545ce58efcd86a2b52bf67f21692a947d19fb9ff0", root.GetProperty("finalStateDigest").GetString());
+        Assert.Equal(10, root.GetProperty("eventIds").GetArrayLength());
+        Assert.Equal(result.Output, (await Invoke("session-self-test")).Output);
+    }
+
+    [Fact]
+    public async Task SessionSelfTestWritesJsonAndRejectsInvalidArguments()
+    {
+        string path = TemporaryJsonPath();
+        try
+        {
+            Invocation result = await Invoke("session-self-test", "--json", path);
+            Assert.Equal(0, result.ExitCode);
+            using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            Assert.Equal("2", document.RootElement.GetProperty("finalTick").GetString());
+        }
+        finally { File.Delete(path); }
+        Assert.Equal(2, (await Invoke("session-self-test", "unexpected")).ExitCode);
     }
 
     private static async Task<Invocation> Invoke(params string[] arguments)

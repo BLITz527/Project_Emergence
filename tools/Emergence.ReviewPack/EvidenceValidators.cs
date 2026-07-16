@@ -28,13 +28,13 @@ public static class AppEvidenceValidator
         RequireText(load, text => !text.Contains("ERROR:", StringComparison.OrdinalIgnoreCase), "source load log", errors);
         RequireText(smoke, text => text.Contains("PROJECT_EMERGENCE_SMOKE_OK", StringComparison.Ordinal), "source smoke marker", errors);
         RequireText(status, text => text.StartsWith("PASSED:", StringComparison.Ordinal), "App passed status", errors);
-        RequireText(manual, text => text.StartsWith("PASSED:", StringComparison.Ordinal), "manual launch status", errors);
+        RequireText(manual, text => text.StartsWith("PASSED:", StringComparison.Ordinal) && text.Contains("FOUNDATION / M0.4", StringComparison.Ordinal) && text.Contains("Paused tick 0", StringComparison.Ordinal) && text.Contains("no biological state", StringComparison.Ordinal), "manual launch status", errors);
         if (!File.Exists(screenshot) || new FileInfo(screenshot).Length == 0)
         {
             errors.Add("Normal-shell screenshot is missing or empty.");
         }
 
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.3.0-dev", requirePackagedLayout: false);
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.4.0-dev", requirePackagedLayout: false);
         errors.AddRange(doctorSummary.Errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
         return new AppEvidence(
@@ -98,7 +98,12 @@ public static class PackageEvidenceValidator
         string ruleset = Path.Combine(packageRoot, "rulesets", "foundation-reference.ruleset.json");
         string[] rulesetFiles = Directory.Exists(packageRoot) ? Directory.EnumerateFiles(packageRoot, "*.ruleset.json", SearchOption.AllDirectories).ToArray() : [];
         if (rulesetFiles.Length != 1 || !string.Equals(rulesetFiles[0], ruleset, StringComparison.OrdinalIgnoreCase)) errors.Add("Package does not contain exactly one rulesets/foundation-reference.ruleset.json.");
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.3.0-dev", requirePackagedLayout: true);
+        string sourceRuleset = Path.Combine(reviewRoot, "source", "rulesets", "foundation-reference.ruleset.json");
+        if (!File.Exists(sourceRuleset) || !File.Exists(ruleset) || !string.Equals(EvidencePaths.HashFile(sourceRuleset), EvidencePaths.HashFile(ruleset), StringComparison.OrdinalIgnoreCase)) errors.Add("Packaged reference ruleset is not byte-equivalent to tracked source.");
+        string managedRoot = Path.Combine(packageRoot, "data_Emergence.App_windows_x86_64");
+        foreach (string assembly in new[] { "Emergence.Model.dll", "Emergence.Simulation.dll", "Emergence.Presentation.Contracts.dll" })
+            if (!File.Exists(Path.Combine(managedRoot, assembly))) errors.Add($"Required packaged assembly is missing: {assembly}.");
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.4.0-dev", requirePackagedLayout: true);
         errors.AddRange(doctorSummary.Errors);
         int packageFileCount = ValidatePackageManifest(packageRoot, packageManifest, errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
@@ -248,7 +253,7 @@ internal static class DoctorEvidence
             string[] requiredChecks = ["process.architecture", "runtime.dotnet", "runtime.mode", "path.temp", "path.localAppData", "runtime.layout"];
             if (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                 || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
-                requiredChecks = [.. requiredChecks, "runtime.godot", "ruleset.registry", "rng.algorithm", "rng.domains"];
+                requiredChecks = [.. requiredChecks, "runtime.godot", "ruleset.registry", "rng.algorithm", "rng.domains", "session.definition", "session.scheduler", "presentation.snapshot", "presentation.nonbiological", "presentation.no-mutation", "session.core-headless"];
             if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
             {
                 errors.Add("Doctor JSON has no structured checks array.");

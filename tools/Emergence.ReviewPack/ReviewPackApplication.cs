@@ -11,6 +11,9 @@ public static class ReviewPackApplication
     private static readonly string[] RequiredTestProjects =
     [
         "Emergence.Foundation.Tests",
+        "Emergence.Model.Tests",
+        "Emergence.Simulation.Tests",
+        "Emergence.Presentation.Contracts.Tests",
         "Emergence.Persistence.Tests",
         "Emergence.Architecture.Tests",
         "Emergence.Cli.IntegrationTests",
@@ -59,7 +62,7 @@ public static class ReviewPackApplication
         }
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.3_{timestamp}");
+        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.4_{timestamp}");
         Directory.CreateDirectory(reviewRoot);
         foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "app", "package", "docs" })
         {
@@ -103,9 +106,10 @@ public static class ReviewPackApplication
         IReadOnlyList<TestEvidence> tests = ReadTests(reviewRoot);
         AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion);
         PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0");
-        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.3.0-dev", ".NETCoreApp,Version=v10.0");
-        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.3.0-dev", ".NETCoreApp,Version=v10.0");
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
         (RngEvidence rng, RulesetEvidence rulesets) = Phase03EvidenceValidator.Evaluate(reviewRoot);
+        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, gitCommit);
         string designDigest = ReadDesignDigest(repositoryRoot);
         string sourceDigest = EvidencePaths.DigestTree(Path.Combine(reviewRoot, "source"));
         List<string> warnings = [];
@@ -129,15 +133,16 @@ public static class ReviewPackApplication
         if (!CliEvidenceValidator.IsPassed(cli)) warnings.Add("Required CLI evidence is not passed.");
         if (rng.Status != EvidenceStatus.Passed) warnings.Add($"Required RNG evidence is not passed: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed) warnings.Add($"Required ruleset evidence is not passed: {rulesets.Detail}");
+        if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4 session evidence is not passed: {session.Detail}");
         if (string.IsNullOrWhiteSpace(designDigest))
         {
             warnings.Add("Imported design digest is missing.");
         }
 
         ReviewManifest seed = new(
-            4,
+            5,
             "Project Emergence",
-            "M0 Phase 0.3",
+            "M0 Phase 0.4",
             DateTime.UtcNow,
             repositoryRoot,
             reviewRoot,
@@ -159,7 +164,8 @@ public static class ReviewPackApplication
             [],
             warnings,
             rng,
-            rulesets);
+            rulesets,
+            session);
 
         Write(Path.Combine(reviewRoot, "README_REVIEW.md"), BuildReadme(seed));
         (IReadOnlyList<string> created, IReadOnlyList<string> modified) = CorrectionFiles(repositoryRoot);
@@ -229,7 +235,7 @@ public static class ReviewPackApplication
                 Path.Combine(repositoryRoot, "docs", directory),
                 Path.Combine(reviewRoot, "docs", directory));
         }
-        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md", "phase-0.3-traceability.md" })
+        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md", "phase-0.3-traceability.md", "phase-0.4-traceability.md" })
         {
             string source = Path.Combine(repositoryRoot, "docs", file);
             string target = Path.Combine(reviewRoot, "docs", file);
@@ -296,7 +302,7 @@ public static class ReviewPackApplication
     }
 
     private static string BuildReadme(ReviewManifest manifest) =>
-        $"# Project Emergence M0 Phase 0.3 Review Pack\n\n" +
+        $"# Project Emergence M0 Phase 0.4 Review Pack\n\n" +
         $"Created UTC: {manifest.CreatedUtc:O}\n\n" +
         $"Reviewed commit: `{manifest.GitCommit}` on `{manifest.GitBranch}`; clean={manifest.GitClean}.\n\n" +
         $"Design archive SHA-256: `{manifest.DesignArchiveDigest}`.\n\n" +

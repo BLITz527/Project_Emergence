@@ -44,6 +44,17 @@ public sealed class AlgorithmCatalog : IEquatable<AlgorithmCatalog>
         AlgorithmReference.Parse("foundation.ruleset-registry@1.0.0"),
     ]);
 
+    public static AlgorithmCatalog Phase04 { get; } = new(
+    [
+        .. Phase03.Entries,
+        AlgorithmReference.Parse("simulation.world-session@1.0.0"),
+        AlgorithmReference.Parse("simulation.phase-graph@1.0.0"),
+        AlgorithmReference.Parse("simulation.command-pipeline@1.0.0"),
+        AlgorithmReference.Parse("simulation.event-id@1.0.0"),
+        AlgorithmReference.Parse("simulation.event-commit@1.0.0"),
+        AlgorithmReference.Parse("presentation.session-snapshot@1.0.0"),
+    ]);
+
     public bool Equals(AlgorithmCatalog? other) => other is not null && _entries.SequenceEqual(other._entries);
     public override bool Equals(object? obj) => obj is AlgorithmCatalog other && Equals(other);
     public override int GetHashCode() => Digest.GetHashCode();

@@ -16,6 +16,12 @@
 
 Algorithm and schema IDs use bounded lowercase ASCII dotted segments. Catalogs contain one version per ID and serialize ordinally. Immutable configuration accepts Boolean, Int64, UInt64, Decimal, String, and Digest only; it copies input, sorts keys, includes a redundant digest, and rejects digest mismatch. It cannot execute code.
 
+Phase 0.4 adds an immutable runtime catalog extending (without changing) Phase 0.3 with exactly six world-session, scheduler, command, event, and presentation algorithms. `SimulationSystemId`, `SessionCommandTypeId`, and `WorldEventTypeId` use the same lexical grammar but remain distinct types. All durable lexical/compound values fail closed when a default or invalid value is written.
+
+## Session scheduling limits
+
+The public safety ceilings are 256 systems, 64 dependencies per system, 4,096 pending commands, 1,024 due commands per tick, 4,096 proposals per system per tick, 16,384 committed events per tick, and 128 fault issues. These are checked technical bounds, never biological carrying capacities; excess input fails before partial mutation and is never silently dropped or compressed.
+
 ## Results
 
 `DiagnosticSeverity` remains unchanged. General `FoundationIssue` values use structured code/severity/summary/detail. Information and Warning permit success; Error and Critical force failure. A successful generic result has a value and a failed result cannot expose one. Issue collections are defensive immutable copies.

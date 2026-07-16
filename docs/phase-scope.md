@@ -1,7 +1,7 @@
-# Phase 0.3 scope
+# Phase 0.4 scope
 
-Phase 0.3 preserves the accepted value foundations and adds an explicit 256-bit seed, typed RNG domains/scopes/sample addresses, stateless SHA-256 addressed sampling, unbiased bounded UInt64 sampling, immutable domain and algorithm catalogs, strict digest-bound ruleset descriptors and registry, and a bounded untrusted top-level ruleset-directory loader. One tracked nonbiological foundation reference ruleset validates the complete path.
+Phase 0.4 preserves every accepted vector and adds an authoritative in-memory `WorldSession`, immutable `WorldSessionDefinition`, formal six-phase deterministic `SchedulerGraph`, bounded safe-boundary command intake, transactional event commitment, state/trace fingerprints, and immutable presentation snapshots. Execution is explicitly single-threaded and session-scoped. Pausing stops logical time; serious invariant failures fault without advancing the tick, consuming due commands/event sequence, or exposing partial events.
 
-Pure values remain in the headless Foundation boundary. Filesystem discovery is isolated in Persistence. Typed `CellId`, `OrganismId`, and similar names are compile-time values only.
+Commands are ordered by execute tick then authoritative acceptance sequence. That technical intake order is not a future biological fairness mechanism: later biological contention will use staged intents and fair batched resolution. Events are immutable committed outputs, but current state is not reconstructed solely from events. Presentation snapshots may be replaced or dropped without changing simulation state.
 
-Out of scope are world/session state, schedulers, saves, biological RNG domains, genomes, cells, regions, fields, metabolism, mutation, movement, ecology, ruleset migrations/inheritance, plugins, scripting, network retrieval, adaptive fidelity, and UI redesign. No biological simulation exists.
+Out of scope are persistent snapshots/save-load/recovery (Phase 0.5), session branching and rollback, long-term event history, networking, plugins or reflection discovery, multithreaded execution, biological RNG domains, genomes, cells, regions, fields, metabolism, mutation, movement, ecology, adaptive fidelity, and UI redesign. No biological simulation exists.

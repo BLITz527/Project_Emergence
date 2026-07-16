@@ -2,5 +2,6 @@
   <ItemGroup>
     <ProjectReference Include="../Emergence.Foundation/Emergence.Foundation.csproj" />
     <ProjectReference Include="../Emergence.Model/Emergence.Model.csproj" />
+    <ProjectReference Include="../Emergence.Presentation.Contracts/Emergence.Presentation.Contracts.csproj" />
   </ItemGroup>
 </Project>

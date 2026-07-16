@@ -127,7 +127,7 @@ internal static class StrictRulesetJson
     }
 }
 
-internal sealed class RulesetKeyJsonConverter : JsonConverter<RulesetKey> { public override RulesetKey Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o) => r.TokenType == JsonTokenType.String ? RulesetKey.Parse(r.GetString()!) : throw new JsonException(); public override void Write(Utf8JsonWriter w, RulesetKey v, JsonSerializerOptions o) => w.WriteStringValue(v.ToString()); }
+internal sealed class RulesetKeyJsonConverter : JsonConverter<RulesetKey> { public override RulesetKey Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o) => r.TokenType == JsonTokenType.String ? RulesetKey.Parse(r.GetString()!) : throw new JsonException(); public override void Write(Utf8JsonWriter w, RulesetKey v, JsonSerializerOptions o) { if (v.IsEmpty) throw new JsonException("Default ruleset keys cannot be written."); w.WriteStringValue(v.ToString()); } }
 internal sealed class RulesetDescriptorJsonConverter : JsonConverter<RulesetDescriptor>
 {
     public override RulesetDescriptor Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
@@ -136,7 +136,7 @@ internal sealed class RulesetDescriptorJsonConverter : JsonConverter<RulesetDesc
         try { return RulesetDescriptor.CreateValidated(SemanticVersion.Parse(x.GetProperty("formatVersion").GetString()!), RulesetKey.Parse(x.GetProperty("key").GetString()!), x.GetProperty("displayName").GetString()!, JsonSerializer.Deserialize<AlgorithmCatalog>(x.GetProperty("algorithms"), o)!, JsonSerializer.Deserialize<RngDomainCatalog>(x.GetProperty("rngDomains"), o)!, JsonSerializer.Deserialize<ImmutableConfiguration>(x.GetProperty("configuration"), o)!, Sha256Digest.Parse(x.GetProperty("digest").GetString()!)); }
         catch (Exception e) when (e is ArgumentException or FormatException or InvalidOperationException) { throw new JsonException("Invalid ruleset descriptor.", e); }
     }
-    public override void Write(Utf8JsonWriter w, RulesetDescriptor v, JsonSerializerOptions o) { w.WriteStartObject(); w.WriteString("formatVersion", v.FormatVersion.ToString()); w.WriteString("key", v.Key.ToString()); w.WriteString("displayName", v.DisplayName); w.WritePropertyName("algorithms"); JsonSerializer.Serialize(w, v.Algorithms, o); w.WritePropertyName("rngDomains"); JsonSerializer.Serialize(w, v.RngDomains, o); w.WritePropertyName("configuration"); JsonSerializer.Serialize(w, v.Configuration, o); w.WriteString("digest", v.Digest.ToString()); w.WriteEndObject(); }
+    public override void Write(Utf8JsonWriter w, RulesetDescriptor v, JsonSerializerOptions o) { ArgumentNullException.ThrowIfNull(v); if (v.Key.IsEmpty || v.Algorithms is null || v.RngDomains is null || v.Configuration is null) throw new JsonException("Invalid ruleset descriptors cannot be written."); w.WriteStartObject(); w.WriteString("formatVersion", v.FormatVersion.ToString()); w.WriteString("key", v.Key.ToString()); w.WriteString("displayName", v.DisplayName); w.WritePropertyName("algorithms"); JsonSerializer.Serialize(w, v.Algorithms, o); w.WritePropertyName("rngDomains"); JsonSerializer.Serialize(w, v.RngDomains, o); w.WritePropertyName("configuration"); JsonSerializer.Serialize(w, v.Configuration, o); w.WriteString("digest", v.Digest.ToString()); w.WriteEndObject(); }
 }
 internal sealed class RulesetRegistryJsonConverter : JsonConverter<RulesetRegistry>
 {
