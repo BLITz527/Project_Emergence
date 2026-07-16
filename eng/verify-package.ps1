@@ -51,11 +51,13 @@ Invoke-PackagedMode -Name 'packaged-doctor' -Arguments @('--headless', '--', '--
 if (-not (Test-Path -LiteralPath $doctorJson -PathType Leaf)) { throw 'Packaged doctor did not produce JSON evidence.' }
 $doctorResult = Get-Content -LiteralPath $doctorJson -Raw | ConvertFrom-Json
 if (-not $doctorResult.success) { throw 'Packaged doctor JSON reports failure.' }
-$requiredSessionChecks = @('session.definition', 'session.scheduler', 'presentation.snapshot', 'presentation.nonbiological', 'presentation.no-mutation', 'session.core-headless')
+$requiredSessionChecks = @('phase.identity', 'session.definition', 'session.scheduler', 'presentation.snapshot', 'presentation.nonbiological', 'presentation.no-mutation', 'session.core-headless')
 foreach ($checkId in $requiredSessionChecks) {
     $check = @($doctorResult.checks | Where-Object { $_.id -eq $checkId })
-    if ($check.Count -ne 1 -or $check[0].severity -ne 'Success') { throw "Packaged doctor is missing successful Phase 0.4 check: $checkId" }
+    if ($check.Count -ne 1 -or $check[0].severity -ne 'Success') { throw "Packaged doctor is missing successful Phase 0.4R check: $checkId" }
 }
+$phaseIdentity = @($doctorResult.checks | Where-Object { $_.id -eq 'phase.identity' })
+if ($phaseIdentity.Count -ne 1 -or $phaseIdentity[0].detail -ne 'M0 Phase 0.4R') { throw 'Packaged doctor has stale correction phase identity.' }
 Get-ChildItem -LiteralPath $package -File -Recurse | Sort-Object FullName |
     Select-Object @{Name='Path';Expression={$_.FullName.Substring($package.Length + 1).Replace('\','/')}}, Length, @{Name='Sha256';Expression={(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}} |
     ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $evidence 'package-manifest.json') -Encoding utf8

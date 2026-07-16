@@ -65,6 +65,6 @@ internal static class FoundationJsonConverters
         options.Converters.Add(new CanonicalStringJsonConverter<ConfigurationSchemaId>(ConfigurationSchemaId.Parse));
         options.Converters.Add(new CanonicalStringJsonConverter<ConfigurationKey>(ConfigurationKey.Parse));
         options.Converters.Add(new CanonicalStringJsonConverter<IssueCode>(IssueCode.Parse));
-        options.Converters.Add(new JsonStringEnumConverter<IssueSeverity>());
+        options.Converters.Add(new IssueSeverityJsonConverter());
     }
 }

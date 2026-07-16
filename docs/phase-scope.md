@@ -1,6 +1,8 @@
-# Phase 0.4 scope
+# Phase 0.4R scope
 
-Phase 0.4 preserves every accepted vector and adds an authoritative in-memory `WorldSession`, immutable `WorldSessionDefinition`, formal six-phase deterministic `SchedulerGraph`, bounded safe-boundary command intake, transactional event commitment, state/trace fingerprints, and immutable presentation snapshots. Execution is explicitly single-threaded and session-scoped. Pausing stops logical time; serious invariant failures fault without advancing the tick, consuming due commands/event sequence, or exposing partial events.
+Phase 0.4R preserves every accepted Phase 0.1–0.4 vector while hardening the authoritative in-memory `WorldSession`, immutable `WorldSessionDefinition`, deterministic `SchedulerGraph`, bounded command intake, transactional event commitment, and immutable presentation boundary. Execution is single-threaded and session-scoped. During an active tick, owner-thread calls to `Pause`, `Resume`, `SubmitCommand`, or nested `StepOneTick` are rejected without mutation and mark the outer transaction for a Critical atomic fault. Wrong-thread calls remain rejected without marking the owner transaction.
+
+Command processors and simulation systems are stateless proposal-producing behavior components, not owners of hidden authoritative state. Successful Information and Warning issues are preserved in deterministic callback order in the tick receipt under a 128-issue ceiling; they do not enter state fingerprints or world history. `IssueSeverity` accepts only its four exact canonical names. Every receipt carries its producing session-definition digest, and presentation validates that identity before attaching event summaries.
 
 Commands are ordered by execute tick then authoritative acceptance sequence. That technical intake order is not a future biological fairness mechanism: later biological contention will use staged intents and fair batched resolution. Events are immutable committed outputs, but current state is not reconstructed solely from events. Presentation snapshots may be replaced or dropped without changing simulation state.
 

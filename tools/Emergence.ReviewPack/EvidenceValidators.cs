@@ -28,7 +28,7 @@ public static class AppEvidenceValidator
         RequireText(load, text => !text.Contains("ERROR:", StringComparison.OrdinalIgnoreCase), "source load log", errors);
         RequireText(smoke, text => text.Contains("PROJECT_EMERGENCE_SMOKE_OK", StringComparison.Ordinal), "source smoke marker", errors);
         RequireText(status, text => text.StartsWith("PASSED:", StringComparison.Ordinal), "App passed status", errors);
-        RequireText(manual, text => text.StartsWith("PASSED:", StringComparison.Ordinal) && text.Contains("FOUNDATION / M0.4", StringComparison.Ordinal) && text.Contains("Paused tick 0", StringComparison.Ordinal) && text.Contains("no biological state", StringComparison.Ordinal), "manual launch status", errors);
+        RequireText(manual, text => text.StartsWith("PASSED:", StringComparison.Ordinal) && text.Contains("FOUNDATION / M0.4R", StringComparison.Ordinal) && text.Contains("Paused tick 0", StringComparison.Ordinal) && text.Contains("no biological state", StringComparison.Ordinal), "manual launch status", errors);
         if (!File.Exists(screenshot) || new FileInfo(screenshot).Length == 0)
         {
             errors.Add("Normal-shell screenshot is missing or empty.");
@@ -253,7 +253,7 @@ internal static class DoctorEvidence
             string[] requiredChecks = ["process.architecture", "runtime.dotnet", "runtime.mode", "path.temp", "path.localAppData", "runtime.layout"];
             if (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                 || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
-                requiredChecks = [.. requiredChecks, "runtime.godot", "ruleset.registry", "rng.algorithm", "rng.domains", "session.definition", "session.scheduler", "presentation.snapshot", "presentation.nonbiological", "presentation.no-mutation", "session.core-headless"];
+                requiredChecks = [.. requiredChecks, "phase.identity", "runtime.godot", "ruleset.registry", "rng.algorithm", "rng.domains", "session.definition", "session.scheduler", "presentation.snapshot", "presentation.nonbiological", "presentation.no-mutation", "session.core-headless"];
             if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
             {
                 errors.Add("Doctor JSON has no structured checks array.");
@@ -265,6 +265,8 @@ internal static class DoctorEvidence
                 {
                     if (!checkArray.Any(check => check.TryGetProperty("id", out JsonElement checkId) && checkId.GetString() == id)) errors.Add($"Doctor JSON is missing required check '{id}'.");
                 }
+                JsonElement[] phaseChecks = checkArray.Where(check => check.TryGetProperty("id", out JsonElement checkId) && checkId.GetString() == "phase.identity").ToArray();
+                if (phaseChecks.Length > 0 && (phaseChecks.Length != 1 || !phaseChecks[0].TryGetProperty("detail", out JsonElement phaseDetail) || phaseDetail.GetString() != Phase04EvidenceValidator.CorrectionPhase)) errors.Add("Doctor JSON has stale correction phase identity.");
                 if (checkArray.Any(check => check.TryGetProperty("severity", out JsonElement severity) && severity.GetString() == "Failure")) errors.Add("Doctor JSON contains a failed structured check.");
             }
             return new DoctorSummary(commit, framework, errors);

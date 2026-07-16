@@ -5,6 +5,7 @@ namespace Emergence.ReviewPack;
 
 public static class Phase04EvidenceValidator
 {
+    public const string CorrectionPhase = "M0 Phase 0.4R";
     public const string AlgorithmCatalogDigest = "bbaebfc88087fc04ab024d2505b9a50ed7e7a2f21cd34a18eb4e83d56cb1a418";
     public const string SchedulerGraphDigest = "3ddcda2140c7fed29e2af548b8c71edf988c12a7f65ecdfd73d47c1bab33067a";
     public const string SessionDefinitionDigest = "fcc91152d376a93f558f44c2e76eb8493ab61fb519d598faa8782992d8cd3456";
@@ -23,6 +24,23 @@ public static class Phase04EvidenceValidator
         "97bf2d51795ee43365d08aa9e1c085f4",
         "54ace7a336281d6a987af49193031dd6",
     });
+
+    private static readonly IReadOnlyDictionary<string, string[]> RequiredCorrectionTests = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["tests/Emergence.Simulation.Tests/Emergence.Simulation.Tests.trx"] =
+        [
+            "ActiveStepMutationFromCommandProcessorFaultsAtomically",
+            "ActiveStepMutationFromSimulationSystemFaultsAtomically",
+            "ReentrantCommandProcessorFaultsWithEmptyOrNonemptyGraph",
+            "SuccessfulCallbackIssuesArePreservedInDeterministicOrder",
+            "ReceiptIssueLimitIsExactAndOneOverFaultsAtomically",
+            "WrongThreadMutationDuringStepIsRejectedWithoutViolatingOwnerTransaction",
+        ],
+        ["tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.trx"] = ["IssueSeverityUsesExactClosedJson"],
+        ["tests/Emergence.Model.Tests/Emergence.Model.Tests.trx"] = ["TickReceiptDefinitionIdentityIsImmutableAndJsonStable", "TickReceiptIssuesAreDefensivelyCopied"],
+        ["tests/Emergence.Presentation.Contracts.Tests/Emergence.Presentation.Contracts.Tests.trx"] = ["CrossSessionReceiptBindingRejectsOtherBranchOrWorld"],
+        ["tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.trx"] = ["ProductionCallbacksAreDocumentedAndStateless"],
+    };
 
     public static SessionEvidence Evaluate(string reviewRoot, string expectedCommit)
     {
@@ -54,7 +72,7 @@ public static class Phase04EvidenceValidator
             commands = root.GetProperty("acceptedCommands").GetInt32();
             events = root.GetProperty("committedEvents").GetInt32();
             eventIds = root.GetProperty("eventIds").EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray();
-            if (phase != "M0 Phase 0.4") errors.Add($"Session phase mismatch: '{phase}'.");
+            if (phase != CorrectionPhase) errors.Add($"Session phase mismatch: '{phase}'.");
             if (version != "0.4.0-dev") errors.Add($"Session version mismatch: '{version}'.");
             if (!commit.Equals(expectedCommit, StringComparison.OrdinalIgnoreCase)) errors.Add($"Session reviewed commit mismatch: '{commit}'.");
             Require(algorithm, AlgorithmCatalogDigest, "algorithm catalog", errors);
@@ -74,6 +92,7 @@ public static class Phase04EvidenceValidator
             errors.Add($"Session self-test evidence is invalid: {exception.Message}");
         }
         if (!File.Exists(Resolve(reviewRoot, logRelative))) errors.Add("Session self-test log is missing.");
+        ValidateCorrectionTests(reviewRoot, errors);
 
         bool sourcePresentation = ValidateDoctor(Resolve(reviewRoot, appDoctorRelative), expectedCommit, errors, "source");
         bool packagePresentation = ValidateDoctor(Resolve(reviewRoot, packageDoctorRelative), expectedCommit, errors, "packaged");
@@ -95,8 +114,8 @@ public static class Phase04EvidenceValidator
             Array.AsReadOnly(eventIds),
             presentation,
             presentation ? "Paused@0" : string.Empty,
-            [dataRelative, logRelative, appDoctorRelative, packageDoctorRelative],
-            errors.Count == 0 ? "Phase 0.4 session, event, state, and presentation evidence passed independent semantic validation." : string.Join(" ", errors));
+            [dataRelative, logRelative, appDoctorRelative, packageDoctorRelative, .. RequiredCorrectionTests.Keys],
+            errors.Count == 0 ? "Phase 0.4R transaction, issue, receipt, session, event, state, and presentation evidence passed independent semantic validation." : string.Join(" ", errors));
     }
 
     private static bool ValidateDoctor(string path, string expectedCommit, List<string> errors, string role)
@@ -107,14 +126,15 @@ public static class Phase04EvidenceValidator
             JsonElement root = document.RootElement;
             if (root.GetProperty("success").ValueKind != JsonValueKind.True) errors.Add($"{role} App doctor does not report success=true.");
             JsonElement build = root.GetProperty("build");
-            if (build.GetProperty("semanticVersion").GetString() != "0.4.0-dev") errors.Add($"{role} App doctor has wrong Phase 0.4 version.");
+            if (build.GetProperty("semanticVersion").GetString() != "0.4.0-dev") errors.Add($"{role} App doctor has wrong Phase 0.4R version.");
             if (!string.Equals(build.GetProperty("gitCommit").GetString(), expectedCommit, StringComparison.OrdinalIgnoreCase)) errors.Add($"{role} App doctor has wrong reviewed commit.");
             Dictionary<string, JsonElement> checks = root.GetProperty("checks").EnumerateArray().ToDictionary(item => item.GetProperty("id").GetString() ?? string.Empty, StringComparer.Ordinal);
-            string[] required = ["session.definition", "session.scheduler", "presentation.snapshot", "presentation.nonbiological", "presentation.no-mutation", "session.core-headless"];
+            string[] required = ["phase.identity", "session.definition", "session.scheduler", "presentation.snapshot", "presentation.nonbiological", "presentation.no-mutation", "session.core-headless"];
             foreach (string id in required)
             {
                 if (!checks.TryGetValue(id, out JsonElement check) || check.GetProperty("severity").GetString() != "Success") errors.Add($"{role} App doctor is missing successful check '{id}'.");
             }
+            if (checks.TryGetValue("phase.identity", out JsonElement phaseIdentity) && phaseIdentity.GetProperty("detail").GetString() != CorrectionPhase) errors.Add($"{role} App doctor has stale correction phase identity.");
             if (checks.TryGetValue("session.definition", out JsonElement definition) && definition.GetProperty("detail").GetString() != SessionDefinitionDigest) errors.Add($"{role} App session definition mismatch.");
             if (checks.TryGetValue("session.scheduler", out JsonElement graph) && graph.GetProperty("detail").GetString() != SchedulerGraphDigest) errors.Add($"{role} App scheduler graph mismatch.");
             if (checks.TryGetValue("presentation.snapshot", out JsonElement snapshot))
@@ -139,6 +159,22 @@ public static class Phase04EvidenceValidator
         }
     }
 
+    private static void ValidateCorrectionTests(string reviewRoot, List<string> errors)
+    {
+        foreach ((string relative, string[] requiredNames) in RequiredCorrectionTests)
+        {
+            string path = Resolve(reviewRoot, relative);
+            if (!File.Exists(path))
+            {
+                errors.Add($"Correction test evidence is missing: {relative}.");
+                continue;
+            }
+            string trx = File.ReadAllText(path);
+            foreach (string requiredName in requiredNames)
+                if (!trx.Contains(requiredName, StringComparison.Ordinal)) errors.Add($"Correction test evidence '{relative}' does not include '{requiredName}'.");
+        }
+    }
+
     private static void Exact(JsonElement root, params string[] expected)
     {
         if (root.ValueKind != JsonValueKind.Object) throw new JsonException("Expected session self-test object.");
@@ -151,7 +187,7 @@ public static class Phase04EvidenceValidator
 
     private static void Require(string actual, string expected, string name, List<string> errors)
     {
-        if (!string.Equals(actual, expected, StringComparison.Ordinal)) errors.Add($"Phase 0.4 {name} digest mismatch.");
+        if (!string.Equals(actual, expected, StringComparison.Ordinal)) errors.Add($"Phase 0.4R {name} digest mismatch.");
     }
 
     private static string Resolve(string root, string relative) => Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));

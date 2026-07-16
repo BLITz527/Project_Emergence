@@ -173,7 +173,7 @@ public static class SessionSelfTest
 
         return new SessionSelfTestReport(
             checks.All(static item => item.Severity == DiagnosticSeverity.Success),
-            "M0 Phase 0.4",
+            "M0 Phase 0.4R",
             BuildInfo.Current.SemanticVersion,
             BuildInfo.Current.GitCommit,
             AlgorithmCatalog.Phase04.Digest.ToString(),

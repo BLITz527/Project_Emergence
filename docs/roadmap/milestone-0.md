@@ -12,9 +12,9 @@ Accepted scope: typed IDs and identities, wide logical time and checked counters
 
 Accepted scope: explicit 256-bit seeds, typed addressed RNG, exact golden vectors, unbiased bounded sampling, domain/algorithm catalogs, strict immutable ruleset manifests and registry, bounded Persistence loading, one nonbiological reference ruleset, and independent source/package evidence.
 
-## Phase 0.4 — world session and deterministic scheduler
+## Phase 0.4 / 0.4R — world session and deterministic scheduler
 
-Active scope: immutable session definition, authoritative single-owner in-memory session, fixed six-phase scheduler graph, bounded command processors, transactional event commitment, deterministic state/trace/EventId vectors, immutable presentation snapshots, and actual paused-at-zero App consumption. Technical system order is not biological fairness, and no biology is implemented.
+Active correction scope: immutable session definition, authoritative single-owner in-memory session, fixed six-phase scheduler graph, bounded command processors, transactional event commitment, deterministic state/trace/EventId vectors, immutable presentation snapshots, and actual paused-at-zero App consumption. Phase 0.4R additionally fails closed on callback mutation or reentrancy, preserves successful receipt diagnostics, closes `IssueSeverity`, and binds receipts to session identity. Technical system order is not biological fairness, and no biology is implemented.
 
 ## Deferred
 

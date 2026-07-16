@@ -122,6 +122,7 @@ public sealed class TickExecutionReceipt
 
     private TickExecutionReceipt(
         bool success,
+        Sha256Digest sessionDefinitionDigest,
         SimulationTick executedTick,
         SimulationTick resultingTick,
         IEnumerable<AcceptedSessionCommand> commandsConsumed,
@@ -144,6 +145,7 @@ public sealed class TickExecutionReceipt
         if (success != issueSuccess) throw new ArgumentException("Receipt success must match issue severity.", nameof(success));
         if (!success && (events.Length != 0 || commands.Length != 0 || resultingTick != executedTick)) throw new ArgumentException("Failed receipts cannot expose committed mutation.", nameof(success));
         Success = success;
+        SessionDefinitionDigest = sessionDefinitionDigest;
         ExecutedTick = executedTick;
         ResultingTick = resultingTick;
         _commandsConsumed = Array.AsReadOnly(commands);
@@ -154,23 +156,26 @@ public sealed class TickExecutionReceipt
     }
 
     [JsonPropertyOrder(0)] public bool Success { get; }
-    [JsonPropertyOrder(1)] public SimulationTick ExecutedTick { get; }
-    [JsonPropertyOrder(2)] public SimulationTick ResultingTick { get; }
-    [JsonPropertyOrder(3)] public IReadOnlyList<AcceptedSessionCommand> CommandsConsumed => _commandsConsumed;
-    [JsonPropertyOrder(4)] public IReadOnlyList<SimulationSystemId> SystemsExecuted => _systemsExecuted;
-    [JsonPropertyOrder(5)] public IReadOnlyList<CommittedWorldEvent> CommittedEvents => _committedEvents;
-    [JsonPropertyOrder(6)] public Sha256Digest ResultingStateDigest { get; }
-    [JsonPropertyOrder(7)] public IReadOnlyList<FoundationIssue> Issues => _issues;
+    [JsonPropertyOrder(1)] public Sha256Digest SessionDefinitionDigest { get; }
+    [JsonPropertyOrder(2)] public SimulationTick ExecutedTick { get; }
+    [JsonPropertyOrder(3)] public SimulationTick ResultingTick { get; }
+    [JsonPropertyOrder(4)] public IReadOnlyList<AcceptedSessionCommand> CommandsConsumed => _commandsConsumed;
+    [JsonPropertyOrder(5)] public IReadOnlyList<SimulationSystemId> SystemsExecuted => _systemsExecuted;
+    [JsonPropertyOrder(6)] public IReadOnlyList<CommittedWorldEvent> CommittedEvents => _committedEvents;
+    [JsonPropertyOrder(7)] public Sha256Digest ResultingStateDigest { get; }
+    [JsonPropertyOrder(8)] public IReadOnlyList<FoundationIssue> Issues => _issues;
 
     internal static TickExecutionReceipt Succeeded(
+        Sha256Digest sessionDefinitionDigest,
         SimulationTick executedTick,
         SimulationTick resultingTick,
         IEnumerable<AcceptedSessionCommand> commandsConsumed,
         IEnumerable<SimulationSystemId> systemsExecuted,
         IEnumerable<CommittedWorldEvent> committedEvents,
-        Sha256Digest resultingStateDigest) =>
-        new(true, executedTick, resultingTick, commandsConsumed, systemsExecuted, committedEvents, resultingStateDigest, []);
+        Sha256Digest resultingStateDigest,
+        IEnumerable<FoundationIssue> issues) =>
+        new(true, sessionDefinitionDigest, executedTick, resultingTick, commandsConsumed, systemsExecuted, committedEvents, resultingStateDigest, issues);
 
-    internal static TickExecutionReceipt Failed(SimulationTick unchangedTick, Sha256Digest resultingStateDigest, IEnumerable<FoundationIssue> issues) =>
-        new(false, unchangedTick, unchangedTick, [], [], [], resultingStateDigest, issues);
+    internal static TickExecutionReceipt Failed(Sha256Digest sessionDefinitionDigest, SimulationTick unchangedTick, Sha256Digest resultingStateDigest, IEnumerable<FoundationIssue> issues) =>
+        new(false, sessionDefinitionDigest, unchangedTick, unchangedTick, [], [], [], resultingStateDigest, issues);
 }

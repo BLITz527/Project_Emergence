@@ -82,7 +82,7 @@ public partial class MainShell : Control
         layout.AddThemeConstantOverride("separation", 14);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.4", 14, accent);
+        Label eyebrow = Label("FOUNDATION / M0.4R", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
@@ -146,6 +146,11 @@ public partial class MainShell : Control
     {
         DiagnosticReport foundation = RuntimeDiagnostics.Run("godot-app", "ProjectEmergence.exe");
         List<DiagnosticCheck> checks = foundation.Checks.ToList();
+        checks.Add(new DiagnosticCheck(
+            "phase.identity",
+            DiagnosticSeverity.Success,
+            "Correction evidence phase",
+            "M0 Phase 0.4R"));
         checks.Add(new DiagnosticCheck(
             "runtime.godot",
             DiagnosticSeverity.Success,

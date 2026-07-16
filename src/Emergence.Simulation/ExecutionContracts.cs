@@ -47,6 +47,10 @@ public sealed class SimulationSystemOutput
     public static SimulationSystemOutput Empty { get; } = new([]);
 }
 
+/// <summary>
+/// Stateless simulation behavior that may only inspect the supplied context and propose output.
+/// Implementations must not retain or mutate an authoritative <see cref="WorldSession"/>.
+/// </summary>
 public interface ISimulationSystem
 {
     SimulationSystemDescriptor Descriptor { get; }
@@ -70,6 +74,10 @@ public sealed class CommandProcessorOutput
     public static CommandProcessorOutput Empty { get; } = new([]);
 }
 
+/// <summary>
+/// Stateless command behavior that may only inspect the supplied inputs and propose output.
+/// Implementations must not retain or mutate an authoritative <see cref="WorldSession"/>.
+/// </summary>
 public interface ISessionCommandProcessor
 {
     SessionCommandTypeId CommandType { get; }

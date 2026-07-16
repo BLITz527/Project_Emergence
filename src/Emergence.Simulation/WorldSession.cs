@@ -22,7 +22,7 @@ public sealed class WorldSession
     private readonly CheckedSequenceCounter _eventSequences = new();
     private ReadOnlyCollection<FoundationIssue> _faultIssues = Array.AsReadOnly(Array.Empty<FoundationIssue>());
     private int _stepping;
-    private int _reentrantViolation;
+    private int _transactionViolation;
 
     public WorldSession(WorldSessionDefinition definition, IEnumerable<ISimulationSystem> systems, CommandProcessorRegistry commandProcessors)
     {
@@ -57,6 +57,11 @@ public sealed class WorldSession
     public OperationResult Pause()
     {
         if (!IsOwnerThread) return OperationResult.Failed(Issue("session.thread-ownership", IssueSeverity.Error, "Wrong session thread", "Only the owning thread may pause the session."));
+        if (Volatile.Read(ref _stepping) != 0)
+        {
+            Interlocked.Exchange(ref _transactionViolation, 1);
+            return OperationResult.Failed(Issue("session.transaction-mutation", IssueSeverity.Critical, "Mutation during active transaction", "Pause cannot mutate a session while StepOneTick is active."));
+        }
         if (Status == WorldSessionStatus.Faulted) return OperationResult.Failed(Issue("session.faulted", IssueSeverity.Error, "Session is faulted", "Fault recovery is deferred beyond Phase 0.4."));
         Status = WorldSessionStatus.Paused;
         return OperationResult.Succeeded();
@@ -65,6 +70,11 @@ public sealed class WorldSession
     public OperationResult Resume()
     {
         if (!IsOwnerThread) return OperationResult.Failed(Issue("session.thread-ownership", IssueSeverity.Error, "Wrong session thread", "Only the owning thread may resume the session."));
+        if (Volatile.Read(ref _stepping) != 0)
+        {
+            Interlocked.Exchange(ref _transactionViolation, 1);
+            return OperationResult.Failed(Issue("session.transaction-mutation", IssueSeverity.Critical, "Mutation during active transaction", "Resume cannot mutate a session while StepOneTick is active."));
+        }
         if (Status == WorldSessionStatus.Faulted) return OperationResult.Failed(Issue("session.faulted", IssueSeverity.Error, "Session is faulted", "Fault recovery is deferred beyond Phase 0.4."));
         Status = WorldSessionStatus.Ready;
         return OperationResult.Succeeded();
@@ -73,6 +83,11 @@ public sealed class WorldSession
     public OperationResult<AcceptedSessionCommand> SubmitCommand(SessionCommandRequest request)
     {
         if (!IsOwnerThread) return OperationResult<AcceptedSessionCommand>.Failed(Issue("session.thread-ownership", IssueSeverity.Error, "Wrong session thread", "Only the owning thread may submit commands."));
+        if (Volatile.Read(ref _stepping) != 0)
+        {
+            Interlocked.Exchange(ref _transactionViolation, 1);
+            return OperationResult<AcceptedSessionCommand>.Failed(Issue("session.transaction-mutation", IssueSeverity.Critical, "Mutation during active transaction", "SubmitCommand cannot mutate a session while StepOneTick is active."));
+        }
         if (request is null) return OperationResult<AcceptedSessionCommand>.Failed(Issue("command.null", IssueSeverity.Error, "Missing command", "Command request cannot be null."));
         if (Status == WorldSessionStatus.Faulted) return OperationResult<AcceptedSessionCommand>.Failed(Issue("command.session-faulted", IssueSeverity.Error, "Session is faulted", "Faulted sessions cannot accept commands."));
         if (request.ExecuteAtTick.CompareTo(CurrentTick) < 0) return OperationResult<AcceptedSessionCommand>.Failed(Issue("command.past-tick", IssueSeverity.Error, "Command tick is in the past", $"Current tick is {CurrentTick}; requested tick is {request.ExecuteAtTick}."));
@@ -94,14 +109,15 @@ public sealed class WorldSession
         if (!IsOwnerThread) return NonFaultFailure(Issue("session.thread-ownership", IssueSeverity.Error, "Wrong session thread", "Only the owning thread may step the session."));
         if (Interlocked.CompareExchange(ref _stepping, 1, 0) != 0)
         {
-            Interlocked.Exchange(ref _reentrantViolation, 1);
+            Interlocked.Exchange(ref _transactionViolation, 1);
             return NonFaultFailure(Issue("session.reentrant-step", IssueSeverity.Critical, "Reentrant step rejected", "StepOneTick cannot be reentered or executed concurrently."));
         }
 
         try
         {
+            Interlocked.Exchange(ref _transactionViolation, 0);
             if (Status == WorldSessionStatus.Paused) return NonFaultFailure(Issue("session.paused", IssueSeverity.Error, "Session is paused", "Resume the session before stepping."));
-            if (Status == WorldSessionStatus.Faulted) return TickExecutionReceipt.Failed(CurrentTick, StateDigest, _faultIssues);
+            if (Status == WorldSessionStatus.Faulted) return TickExecutionReceipt.Failed(Definition.Digest, CurrentTick, StateDigest, _faultIssues);
             if (CurrentTick.Value == UInt128.MaxValue) return Fault([Issue("session.tick-exhausted", IssueSeverity.Critical, "Simulation tick exhausted", "Logical time cannot wrap.")]);
 
             if (_pendingCommands.Any(command => command.ExecuteAtTick.CompareTo(CurrentTick) < 0))
@@ -128,6 +144,7 @@ public sealed class WorldSession
     {
         List<WorldEventProposal> proposals = [];
         List<SimulationSystemId> executedSystems = [];
+        List<FoundationIssue> receiptIssues = [];
         HashSet<SequenceNumber> dueSequences = due.Select(static command => command.SequenceNumber).ToHashSet();
 
         SimulationExecutionContext commandContext = new(Definition, CurrentTick, SimulationPhase.Commands, due);
@@ -139,9 +156,12 @@ public sealed class WorldSession
             try { result = processor.Process(commandContext, command); }
             catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
             {
+                ThrowIfTransactionViolated("A command processor attempted to mutate or reenter the active session transaction.");
                 throw Failure("command.processor-exception", "Command processor threw", $"{command.CommandType}: {exception.GetType().Name}: {exception.Message}");
             }
+            ThrowIfTransactionViolated("A command processor attempted to mutate or reenter the active session transaction.");
             if (!result.Success) throw new SessionExecutionException(result.Issues);
+            AppendReceiptIssues(receiptIssues, result.Issues);
             ValidateProposals(result.Value.EventProposals, SimulationPhase.Commands, null, dueSequences);
             AppendProposals(proposals, result.Value.EventProposals);
         }
@@ -158,16 +178,19 @@ public sealed class WorldSession
                 try { result = system.Execute(context); }
                 catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
                 {
+                    ThrowIfTransactionViolated("A simulation system attempted to mutate or reenter the active session transaction.");
                     throw Failure("scheduler.system-exception", "Simulation system threw", $"{descriptor.Id}: {exception.GetType().Name}: {exception.Message}");
                 }
+                ThrowIfTransactionViolated("A simulation system attempted to mutate or reenter the active session transaction.");
                 if (!result.Success) throw new SessionExecutionException(result.Issues);
+                AppendReceiptIssues(receiptIssues, result.Issues);
                 ValidateProposals(result.Value.EventProposals, phase, descriptor.Id, dueSequences);
                 AppendProposals(proposals, result.Value.EventProposals);
                 executedSystems.Add(descriptor.Id);
-                if (Volatile.Read(ref _reentrantViolation) != 0) throw Failure("session.reentrant-step", "Reentrant step rejected", "A simulation system attempted to reenter StepOneTick.");
             }
         }
 
+        ThrowIfTransactionViolated("A callback attempted to mutate or reenter the active session transaction.");
         if (proposals.Count > SessionTechnicalLimits.MaxCommittedEventsPerTick)
             throw Failure("event.commit-limit", "Committed event limit exceeded", $"Tick proposed {proposals.Count} events; limit is {SessionTechnicalLimits.MaxCommittedEventsPerTick}.");
 
@@ -194,7 +217,7 @@ public sealed class WorldSession
         }
 
         SimulationTick nextTick = new(checked(CurrentTick.Value + UInt128.One));
-        List<AcceptedSessionCommand> remaining = _pendingCommands.Where(command => command.ExecuteAtTick != CurrentTick).ToList();
+        List<AcceptedSessionCommand> remaining = _pendingCommands.Where(command => !dueSequences.Contains(command.SequenceNumber)).ToList();
         SequenceNumber resultingEventSequence = committed.Count == 0 ? LastEventSequence : committed[^1].SequenceNumber;
         Sha256Digest resultingDigest = ComputeStateDigest(nextTick, WorldSessionStatus.Ready, LastCommandSequence, resultingEventSequence, remaining, []);
 
@@ -208,8 +231,8 @@ public sealed class WorldSession
         CurrentTick = nextTick;
         Status = WorldSessionStatus.Ready;
         _faultIssues = Array.AsReadOnly(Array.Empty<FoundationIssue>());
-        Interlocked.Exchange(ref _reentrantViolation, 0);
-        return TickExecutionReceipt.Succeeded(new SimulationTick(checked(nextTick.Value - UInt128.One)), nextTick, due, executedSystems, committed, resultingDigest);
+        Interlocked.Exchange(ref _transactionViolation, 0);
+        return TickExecutionReceipt.Succeeded(Definition.Digest, new SimulationTick(checked(nextTick.Value - UInt128.One)), nextTick, due, executedSystems, committed, resultingDigest, receiptIssues);
     }
 
     private void ValidateProposals(
@@ -239,6 +262,19 @@ public sealed class WorldSession
         if (additions.Count > SessionTechnicalLimits.MaxCommittedEventsPerTick - transaction.Count)
             throw Failure("event.commit-limit", "Committed event limit exceeded", $"A tick cannot exceed {SessionTechnicalLimits.MaxCommittedEventsPerTick} committed events.");
         transaction.AddRange(additions);
+    }
+
+    private static void AppendReceiptIssues(List<FoundationIssue> transaction, IReadOnlyList<FoundationIssue> additions)
+    {
+        if (additions.Count > SessionTechnicalLimits.MaxReceiptIssuesPerTick - transaction.Count)
+            throw Failure("session.receipt-issue-limit", "Tick receipt issue limit exceeded", $"A successful tick cannot exceed {SessionTechnicalLimits.MaxReceiptIssuesPerTick} informational and warning issues.");
+        transaction.AddRange(additions);
+    }
+
+    private void ThrowIfTransactionViolated(string detail)
+    {
+        if (Volatile.Read(ref _transactionViolation) != 0)
+            throw Failure("session.transaction-violation", "Active session transaction violated", detail);
     }
 
     private EventId DeriveEventId(SequenceNumber sequence, SimulationTick tick, WorldEventProposal proposal)
@@ -315,10 +351,10 @@ public sealed class WorldSession
             copy = [Issue("session.fault-issue-limit", IssueSeverity.Critical, "Fault issue limit exceeded", $"More than {SessionTechnicalLimits.MaxFaultIssues} issues were reported.")];
         _faultIssues = Array.AsReadOnly(copy);
         Status = WorldSessionStatus.Faulted;
-        return TickExecutionReceipt.Failed(CurrentTick, StateDigest, _faultIssues);
+        return TickExecutionReceipt.Failed(Definition.Digest, CurrentTick, StateDigest, _faultIssues);
     }
 
-    private TickExecutionReceipt NonFaultFailure(FoundationIssue issue) => TickExecutionReceipt.Failed(CurrentTick, StateDigest, [issue]);
+    private TickExecutionReceipt NonFaultFailure(FoundationIssue issue) => TickExecutionReceipt.Failed(Definition.Digest, CurrentTick, StateDigest, [issue]);
     private bool IsOwnerThread => Environment.CurrentManagedThreadId == _ownerThreadId;
     private static FoundationIssue Issue(string code, IssueSeverity severity, string summary, string detail) => new(new(code), severity, summary, detail);
     private static SessionExecutionException Failure(string code, string summary, string detail) => new([Issue(code, IssueSeverity.Critical, summary, detail)]);

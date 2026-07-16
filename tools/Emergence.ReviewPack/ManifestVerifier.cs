@@ -7,7 +7,7 @@ public static class ManifestIntegrityValidator
     public static VerificationResult Validate(string reviewRoot, ReviewManifest manifest)
     {
         List<string> errors = [];
-        if (manifest.SchemaVersion != 5 || string.IsNullOrWhiteSpace(manifest.Project) || manifest.Phase != "M0 Phase 0.4")
+        if (manifest.SchemaVersion != 5 || string.IsNullOrWhiteSpace(manifest.Project) || manifest.Phase != Phase04EvidenceValidator.CorrectionPhase)
         {
             errors.Add("Manifest schema header is invalid.");
         }
@@ -137,6 +137,7 @@ public static class ReviewPackVerifier
         ValidateDesignDigest(reviewRoot, manifest, errors);
         ValidateSourceListing(reviewRoot, errors);
         ValidatePreflight(reviewRoot, manifest, errors);
+        ValidateCorrectionMetadata(reviewRoot, manifest, errors);
         ValidateTests(reviewRoot, manifest, errors);
 
         BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
@@ -157,7 +158,7 @@ public static class ReviewPackVerifier
         if (rng.Status != EvidenceStatus.Passed || manifest.Rng?.Status != EvidenceStatus.Passed || !Equivalent(rng, manifest.Rng)) errors.Add($"RNG evidence is not passed or disagrees with the manifest: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed || manifest.Rulesets?.Status != EvidenceStatus.Passed || !Equivalent(rulesets, manifest.Rulesets)) errors.Add($"Ruleset evidence is not passed or disagrees with the manifest: {rulesets.Detail}");
         SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit);
-        if (session.Status != EvidenceStatus.Passed || manifest.Session?.Status != EvidenceStatus.Passed || !Equivalent(session, manifest.Session)) errors.Add($"Phase 0.4 session evidence is not passed or disagrees with the manifest: {session.Detail}");
+        if (session.Status != EvidenceStatus.Passed || manifest.Session?.Status != EvidenceStatus.Passed || !Equivalent(session, manifest.Session)) errors.Add($"Phase 0.4R session evidence is not passed or disagrees with the manifest: {session.Detail}");
 
         AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion);
         if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
@@ -196,6 +197,32 @@ public static class ReviewPackVerifier
             TestPassed = manifest.Tests.Sum(test => test.Passed),
             PackageFileCount = package.PackageFileCount,
         };
+    }
+
+    private static void ValidateCorrectionMetadata(string reviewRoot, ReviewManifest manifest, List<string> errors)
+    {
+        const string originalCommit = "903e15ca60b9d7ba2513ace3468cd7691ec2d660";
+        const string acceptedMain = "5f21fc17abcc35843da09efa33a0c7c8abdd7d72";
+        string path = Path.Combine(reviewRoot, "git", "correction-metadata.json");
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+            Dictionary<string, string> values = document.RootElement.EnumerateObject()
+                .ToDictionary(property => property.Name, property => property.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
+            string[] required = ["branch", "correctionCommit", "correctionSubject", "correctionParent", "originalPhase04Commit", "originalPhase04Subject", "acceptedMainCommit"];
+            if (!values.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(required)) errors.Add("Correction commit metadata has missing or unexpected fields.");
+            if (!values.TryGetValue("branch", out string? branch) || branch != "milestone-0-phase-0.4" || branch != manifest.GitBranch) errors.Add("Correction commit metadata has the wrong branch.");
+            if (!values.TryGetValue("correctionCommit", out string? correction) || !correction.Equals(manifest.GitCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Correction commit metadata does not identify the reviewed commit.");
+            if (!values.TryGetValue("correctionSubject", out string? correctionSubject) || correctionSubject != "M0 P0.4R harden scheduler transaction boundaries") errors.Add("Correction commit subject is wrong.");
+            if (!values.TryGetValue("correctionParent", out string? correctionParent) || !correctionParent.Equals(originalCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Correction commit is not directly based on the reviewed Phase 0.4 commit.");
+            if (!values.TryGetValue("originalPhase04Commit", out string? original) || !original.Equals(originalCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Original Phase 0.4 commit metadata is wrong.");
+            if (!values.TryGetValue("originalPhase04Subject", out string? originalSubject) || originalSubject != "M0 P0.4 world session and deterministic scheduler") errors.Add("Original Phase 0.4 commit subject is wrong.");
+            if (!values.TryGetValue("acceptedMainCommit", out string? main) || !main.Equals(acceptedMain, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted main commit metadata is wrong.");
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            errors.Add($"Correction commit metadata is invalid: {exception.Message}");
+        }
     }
 
     private static void ValidateTests(string reviewRoot, ReviewManifest manifest, List<string> errors)

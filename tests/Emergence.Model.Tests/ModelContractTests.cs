@@ -3,8 +3,10 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Emergence.Foundation;
 using Emergence.Foundation.Configuration;
+using Emergence.Foundation.Hashing;
 using Emergence.Foundation.Identifiers;
 using Emergence.Foundation.Randomness;
+using Emergence.Foundation.Results;
 using Emergence.Foundation.Rulesets;
 using Emergence.Foundation.Time;
 using Emergence.Foundation.Versioning;
@@ -167,10 +169,37 @@ public sealed class ModelContractTests
     public void TickReceiptCollectionsAreDefensive()
     {
         List<AcceptedSessionCommand> commands = [new(new(1), default, default, new("foundation.trace"), Payload("x"))];
-        TickExecutionReceipt receipt = TickExecutionReceipt.Succeeded(default, new(1), commands, [new("foundation.trace.command")], [], default);
+        Sha256Digest definitionDigest = FixtureDefinition().Digest;
+        TickExecutionReceipt receipt = TickExecutionReceipt.Succeeded(definitionDigest, default, new(1), commands, [new("foundation.trace.command")], [], default, []);
         commands.Clear();
         Assert.Single(receipt.CommandsConsumed);
+        Assert.Equal(definitionDigest, receipt.SessionDefinitionDigest);
         Assert.Throws<NotSupportedException>(() => ((IList<AcceptedSessionCommand>)receipt.CommandsConsumed).Clear());
+    }
+
+    [Fact]
+    public void TickReceiptDefinitionIdentityIsImmutableAndJsonStable()
+    {
+        Sha256Digest definitionDigest = FixtureDefinition().Digest;
+        TickExecutionReceipt receipt = TickExecutionReceipt.Succeeded(definitionDigest, default, new(1), [], [], [], default, []);
+
+        Assert.Null(typeof(TickExecutionReceipt).GetProperty(nameof(TickExecutionReceipt.SessionDefinitionDigest))!.SetMethod);
+        using JsonDocument document = JsonDocument.Parse(JsonDefaults.Serialize(receipt, false));
+        Assert.Equal(
+            ["success", "sessionDefinitionDigest", "executedTick", "resultingTick", "commandsConsumed", "systemsExecuted", "committedEvents", "resultingStateDigest", "issues"],
+            document.RootElement.EnumerateObject().Select(static property => property.Name));
+        Assert.Equal(definitionDigest.ToString(), document.RootElement.GetProperty("sessionDefinitionDigest").GetString());
+    }
+
+    [Fact]
+    public void TickReceiptIssuesAreDefensivelyCopied()
+    {
+        FoundationIssue[] source = [new(new("receipt.warning"), IssueSeverity.Warning, "Warning", "Synthetic receipt warning.")];
+        TickExecutionReceipt receipt = TickExecutionReceipt.Succeeded(FixtureDefinition().Digest, default, new(1), [], [], [], default, source);
+        source[0] = new(new("receipt.changed"), IssueSeverity.Information, "Changed", "Changed source array.");
+
+        Assert.Equal("receipt.warning", receipt.Issues.Single().Code.ToString());
+        Assert.Throws<NotSupportedException>(() => ((IList<FoundationIssue>)receipt.Issues).Clear());
     }
 
     [Fact]

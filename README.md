@@ -1,6 +1,6 @@
 # Project Emergence
 
-Project Emergence is in **Milestone 0, Phase 0.4**. This phase establishes the first authoritative in-memory world session, deterministic single-threaded phase scheduler, bounded command intake, atomic event commitment, and immutable presentation-snapshot boundary. The fixture session is deliberately nonbiological: it contains no cells, fields, regions, organisms, or fake-life animation.
+Project Emergence is in **Milestone 0, Phase 0.4R**. This correction hardens the authoritative in-memory world session so callback attempts to mutate or reenter an active tick fault atomically. Successful callback diagnostics are preserved in immutable session-bound receipts, `IssueSeverity` is an exact closed set, and presentation rejects receipts from another world or branch. The fixture remains deliberately nonbiological.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ The immutable authoritative design archive is under `docs/design/v1.0/` with SHA
 .\eng\doctor.ps1
 ```
 
-Direct CLI commands are `version`, `doctor`, the preserved `self-test`, `domain-self-test`, `rng-self-test`, and `ruleset validate --directory <path>`, plus the Phase 0.4 `session-self-test`. These commands lock all prior vectors and the scheduler/session/event/state vectors.
+Direct CLI commands are `version`, `doctor`, the preserved `self-test`, `domain-self-test`, `rng-self-test`, and `ruleset validate --directory <path>`, plus the Phase 0.4R `session-self-test`. These commands lock all prior vectors and the scheduler/session/event/state vectors.
 
 ```powershell
 dotnet run --project .\src\Emergence.Cli -- rng-self-test
@@ -28,7 +28,7 @@ dotnet run --project .\src\Emergence.Cli -- ruleset validate --directory .\rules
 dotnet run --project .\src\Emergence.Cli -- session-self-test
 ```
 
-With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell consumes an actual immutable paused-at-tick-zero snapshot and displays `FOUNDATION / M0.4`; it never advances logical time from rendering or frame callbacks.
+With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell consumes an actual immutable paused-at-tick-zero snapshot and displays `FOUNDATION / M0.4R`; it never advances logical time from rendering or frame callbacks.
 
 ## Repository map
 

@@ -62,7 +62,7 @@ public static class ReviewPackApplication
         }
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.4_{timestamp}");
+        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.4R_{timestamp}");
         Directory.CreateDirectory(reviewRoot);
         foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "app", "package", "docs" })
         {
@@ -74,6 +74,17 @@ public static class ReviewPackApplication
         Write(Path.Combine(reviewRoot, "git", "status.txt"), status.Output);
         Write(Path.Combine(reviewRoot, "git", "log.txt"), RunGit(repositoryRoot, "log", "--decorate", "--oneline", "-20").Output);
         Write(Path.Combine(reviewRoot, "git", "diff-stat.txt"), RunGit(repositoryRoot, "diff", "--stat", "HEAD").Output);
+        Dictionary<string, string> correctionMetadata = new(StringComparer.Ordinal)
+        {
+            ["branch"] = OneLine(branch.Output),
+            ["correctionCommit"] = OneLine(head.Output),
+            ["correctionSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
+            ["correctionParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
+            ["originalPhase04Commit"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
+            ["originalPhase04Subject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD^").Output),
+            ["acceptedMainCommit"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^^").Output),
+        };
+        Write(Path.Combine(reviewRoot, "git", "correction-metadata.json"), JsonSerializer.Serialize(correctionMetadata, new JsonSerializerOptions { WriteIndented = true }));
 
         GitResult sourceList = RunGit(repositoryRoot, "ls-tree", "-r", "--name-only", "HEAD");
         if (sourceList.ExitCode != 0)
@@ -133,7 +144,7 @@ public static class ReviewPackApplication
         if (!CliEvidenceValidator.IsPassed(cli)) warnings.Add("Required CLI evidence is not passed.");
         if (rng.Status != EvidenceStatus.Passed) warnings.Add($"Required RNG evidence is not passed: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed) warnings.Add($"Required ruleset evidence is not passed: {rulesets.Detail}");
-        if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4 session evidence is not passed: {session.Detail}");
+        if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4R session evidence is not passed: {session.Detail}");
         if (string.IsNullOrWhiteSpace(designDigest))
         {
             warnings.Add("Imported design digest is missing.");
@@ -142,7 +153,7 @@ public static class ReviewPackApplication
         ReviewManifest seed = new(
             5,
             "Project Emergence",
-            "M0 Phase 0.4",
+            Phase04EvidenceValidator.CorrectionPhase,
             DateTime.UtcNow,
             repositoryRoot,
             reviewRoot,
@@ -302,7 +313,7 @@ public static class ReviewPackApplication
     }
 
     private static string BuildReadme(ReviewManifest manifest) =>
-        $"# Project Emergence M0 Phase 0.4 Review Pack\n\n" +
+        $"# Project Emergence M0 Phase 0.4R Review Pack\n\n" +
         $"Created UTC: {manifest.CreatedUtc:O}\n\n" +
         $"Reviewed commit: `{manifest.GitCommit}` on `{manifest.GitBranch}`; clean={manifest.GitClean}.\n\n" +
         $"Design archive SHA-256: `{manifest.DesignArchiveDigest}`.\n\n" +

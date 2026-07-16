@@ -377,6 +377,7 @@ public sealed class ReviewPackEvidenceTests
           "success": {{success.ToString().ToLowerInvariant()}},
           "build": { "semanticVersion": "0.4.0-dev", "gitCommit": "{{Commit}}", "targetFramework": "{{Framework}}" },
           "checks": [
+            { "id": "phase.identity", "severity": "Success", "detail": "M0 Phase 0.4R" },
             { "id": "process.architecture", "severity": "Success", "detail": "x64" },
             { "id": "runtime.dotnet", "severity": "Success", "detail": ".NET 10" },
             { "id": "runtime.mode", "severity": "Success", "detail": "fixture" },
@@ -411,7 +412,7 @@ public sealed class ReviewPackEvidenceTests
     private static ReviewManifest EmptyManifest(string root) => new(
         5,
         "Project Emergence",
-        "M0 Phase 0.4",
+        "M0 Phase 0.4R",
         DateTime.UnixEpoch,
         root,
         root,

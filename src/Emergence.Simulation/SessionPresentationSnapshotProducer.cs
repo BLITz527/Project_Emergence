@@ -13,6 +13,7 @@ public sealed class SessionPresentationSnapshotProducer
         ArgumentNullException.ThrowIfNull(session);
         if (mostRecentReceipt is not null
             && (!mostRecentReceipt.Success
+                || mostRecentReceipt.SessionDefinitionDigest != session.Definition.Digest
                 || mostRecentReceipt.ResultingTick != session.CurrentTick
                 || (mostRecentReceipt.CommittedEvents.Count > 0
                     && mostRecentReceipt.CommittedEvents[^1].SequenceNumber != session.LastEventSequence)))

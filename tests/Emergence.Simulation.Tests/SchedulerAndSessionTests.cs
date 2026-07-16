@@ -309,6 +309,151 @@ public sealed class SchedulerAndSessionTests
     }
 
     [Fact]
+    public void ActiveStepMutationFromCommandProcessorFaultsAtomically()
+    {
+        Func<WorldSession, OperationResult>[] mutations =
+        [
+            session => session.SubmitCommand(new(default, new("foundation.mutate"), Payload("current"))),
+            session => session.SubmitCommand(new(new(1), new("foundation.mutate"), Payload("future"))),
+            session => session.Pause(),
+            session => session.Resume(),
+        ];
+
+        foreach (Func<WorldSession, OperationResult> mutation in mutations)
+        {
+            MutationProcessor processor = new(mutation);
+            WorldSession session = SessionWithProcessor(processor, []);
+            processor.Session = session;
+            Assert.True(session.SubmitCommand(new(default, processor.CommandType, Payload("trigger"))).Success);
+            Assert.True(session.Resume().Success);
+
+            TickExecutionReceipt receipt = session.StepOneTick();
+
+            Assert.False(processor.MutationResult!.Success);
+            AssertTransactionFailure(session, receipt, expectedPendingCommands: 1, expectedLastCommand: 1);
+        }
+    }
+
+    [Fact]
+    public void ActiveStepMutationFromSimulationSystemFaultsAtomically()
+    {
+        Func<WorldSession, OperationResult>[] mutations =
+        [
+            session => session.SubmitCommand(new(default, new("foundation.trace"), Payload("current"))),
+            session => session.SubmitCommand(new(new(1), new("foundation.trace"), Payload("future"))),
+            session => session.Pause(),
+            session => session.Resume(),
+        ];
+
+        for (int index = 0; index < mutations.Length; index++)
+        {
+            MutationSystem system = new(new(new($"foundation.mutation.s{index}"), SimulationPhase.Prepare, []), mutations[index]);
+            WorldSession session = SessionWithSystems([system]);
+            system.Session = session;
+            Assert.True(session.Resume().Success);
+
+            TickExecutionReceipt receipt = session.StepOneTick();
+
+            Assert.False(system.MutationResult!.Success);
+            AssertTransactionFailure(session, receipt, expectedPendingCommands: 0, expectedLastCommand: 0);
+        }
+    }
+
+    [Fact]
+    public void ReentrantCommandProcessorFaultsWithEmptyOrNonemptyGraph()
+    {
+        foreach (bool hasSystem in new[] { false, true })
+        {
+            NestedStepProcessor processor = new();
+            ISimulationSystem[] systems = hasSystem
+                ? [new DiagnosticSystem(new(new("foundation.inert"), SimulationPhase.Prepare, []), false)]
+                : [];
+            WorldSession session = SessionWithProcessor(processor, systems);
+            processor.Session = session;
+            Assert.True(session.SubmitCommand(new(default, processor.CommandType, Payload("trigger"))).Success);
+            Assert.True(session.Resume().Success);
+
+            TickExecutionReceipt receipt = session.StepOneTick();
+
+            Assert.False(processor.NestedReceipt!.Success);
+            AssertTransactionFailure(session, receipt, expectedPendingCommands: 1, expectedLastCommand: 1);
+        }
+    }
+
+    [Fact]
+    public void SuccessfulCallbackIssuesArePreservedInDeterministicOrder()
+    {
+        SimulationSystemDescriptor a = new(new("foundation.diagnostic.a"), SimulationPhase.Prepare, []);
+        SimulationSystemDescriptor b = new(new("foundation.diagnostic.b"), SimulationPhase.Prepare, [a.Id]);
+        DiagnosticProcessor diagnosticProcessor = new(true);
+        WorldSession diagnostic = SessionWithProcessor(diagnosticProcessor, [new DiagnosticSystem(b, true), new DiagnosticSystem(a, true)]);
+        diagnostic.SubmitCommand(new(default, diagnosticProcessor.CommandType, Payload("first")));
+        diagnostic.SubmitCommand(new(default, diagnosticProcessor.CommandType, Payload("second")));
+        diagnostic.Resume();
+
+        DiagnosticProcessor quietProcessor = new(false);
+        WorldSession quiet = SessionWithProcessor(quietProcessor, [new DiagnosticSystem(b, false), new DiagnosticSystem(a, false)]);
+        quiet.SubmitCommand(new(default, quietProcessor.CommandType, Payload("first")));
+        quiet.SubmitCommand(new(default, quietProcessor.CommandType, Payload("second")));
+        quiet.Resume();
+
+        TickExecutionReceipt receipt = diagnostic.StepOneTick();
+        TickExecutionReceipt quietReceipt = quiet.StepOneTick();
+
+        Assert.True(receipt.Success);
+        Assert.Equal(
+            ["processor.s1.info", "processor.s1.warning", "processor.s2.info", "processor.s2.warning", "system.foundation.diagnostic.a", "system.foundation.diagnostic.b"],
+            receipt.Issues.Select(static issue => issue.Code.ToString()));
+        Assert.All(receipt.Issues, static issue => Assert.True(issue.Severity is IssueSeverity.Information or IssueSeverity.Warning));
+        Assert.Contains(receipt.Issues, static issue => issue.Severity == IssueSeverity.Information);
+        Assert.Contains(receipt.Issues, static issue => issue.Severity == IssueSeverity.Warning);
+        Assert.Equal(quietReceipt.ResultingStateDigest, receipt.ResultingStateDigest);
+        Assert.Equal(quiet.StateDigest, diagnostic.StateDigest);
+        Assert.Empty(receipt.CommittedEvents);
+    }
+
+    [Fact]
+    public void ReceiptIssueLimitIsExactAndOneOverFaultsAtomically()
+    {
+        FoundationIssue[] exactIssues = Enumerable.Range(0, SessionTechnicalLimits.MaxReceiptIssuesPerTick)
+            .Select(index => Diagnostic($"receipt.i{index:D3}", IssueSeverity.Warning))
+            .ToArray();
+        SimulationSystemDescriptor exactDescriptor = new(new("foundation.receipt.exact"), SimulationPhase.Prepare, []);
+        WorldSession exact = SessionWithSystems([new SuccessfulIssueSystem(exactDescriptor, exactIssues)]);
+        exact.Resume();
+        TickExecutionReceipt success = exact.StepOneTick();
+        Assert.True(success.Success);
+        Assert.Equal(SessionTechnicalLimits.MaxReceiptIssuesPerTick, success.Issues.Count);
+
+        FoundationIssue[] excessiveIssues = exactIssues.Append(Diagnostic("receipt.extra", IssueSeverity.Information)).ToArray();
+        SimulationSystemDescriptor excessiveDescriptor = new(new("foundation.receipt.excessive"), SimulationPhase.Prepare, []);
+        WorldSession excessive = SessionWithSystems([new SuccessfulIssueSystem(excessiveDescriptor, excessiveIssues)]);
+        excessive.Resume();
+        TickExecutionReceipt failure = excessive.StepOneTick();
+        AssertTransactionFailure(excessive, failure, expectedPendingCommands: 0, expectedLastCommand: 0, expectedIssueCode: "session.receipt-issue-limit");
+        Assert.Equal("session.receipt-issue-limit", failure.Issues.Single().Code.ToString());
+    }
+
+    [Fact]
+    public void WrongThreadMutationDuringStepIsRejectedWithoutViolatingOwnerTransaction()
+    {
+        SimulationSystemDescriptor descriptor = new(new("foundation.wrong-thread"), SimulationPhase.Prepare, []);
+        WrongThreadMutationSystem system = new(descriptor);
+        WorldSession session = SessionWithSystems([system]);
+        system.Session = session;
+        session.Resume();
+
+        TickExecutionReceipt receipt = session.StepOneTick();
+
+        Assert.True(receipt.Success);
+        Assert.All(system.Results, static result => Assert.False(result.Success));
+        Assert.Equal(WorldSessionStatus.Ready, session.Status);
+        Assert.Equal((UInt128)1, session.CurrentTick.Value);
+        Assert.Empty(session.PendingCommands);
+        Assert.Equal(UInt128.Zero, session.LastCommandSequence.Value);
+    }
+
+    [Fact]
     public void ExecutionContextHasNoMutableSessionSurfaceAndPhaseOrderIsExact()
     {
         Assert.DoesNotContain(typeof(SimulationExecutionContext).GetProperties(), property => property.PropertyType == typeof(WorldSession));
@@ -385,6 +530,12 @@ public sealed class SchedulerAndSessionTests
         return new WorldSession(definition, systems, new CommandProcessorRegistry([new EmptyProcessor()]));
     }
 
+    private static WorldSession SessionWithProcessor(ISessionCommandProcessor processor, IReadOnlyList<ISimulationSystem> systems)
+    {
+        WorldSessionDefinition definition = Definition(systems.Select(static item => item.Descriptor), 7);
+        return new WorldSession(definition, systems, new CommandProcessorRegistry([processor]));
+    }
+
     private static WorldSessionDefinition Definition(IEnumerable<SimulationSystemDescriptor> descriptors, ulong branch) => new(
         new(WorldId.FromUInt64(42)),
         new(WorldId.FromUInt64(42), BranchId.FromUInt64(branch)),
@@ -405,6 +556,21 @@ public sealed class SchedulerAndSessionTests
 
     private static ImmutableConfiguration Payload(string value) => new(new("foundation.test"), new(1, 0, 0), [new(new("foundation.value"), ConfigurationValue.FromString(value))]);
     private static FoundationIssue Failure(string code) => new(new(code), IssueSeverity.Critical, "Synthetic failure", "Nonbiological test fixture failure.");
+    private static FoundationIssue Diagnostic(string code, IssueSeverity severity) => new(new(code), severity, "Synthetic diagnostic", "Nonbiological test fixture diagnostic.");
+
+    private static void AssertTransactionFailure(WorldSession session, TickExecutionReceipt receipt, int expectedPendingCommands, ulong expectedLastCommand, string expectedIssueCode = "session.transaction-violation")
+    {
+        Assert.False(receipt.Success);
+        Assert.Equal(expectedIssueCode, receipt.Issues.Single().Code.ToString());
+        Assert.Equal(IssueSeverity.Critical, receipt.Issues.Single().Severity);
+        Assert.Equal(WorldSessionStatus.Faulted, session.Status);
+        Assert.Equal(UInt128.Zero, session.CurrentTick.Value);
+        Assert.Equal(UInt128.Zero, session.LastEventSequence.Value);
+        Assert.Equal((UInt128)expectedLastCommand, session.LastCommandSequence.Value);
+        Assert.Equal(expectedPendingCommands, session.PendingCommands.Count);
+        Assert.Empty(receipt.CommandsConsumed);
+        Assert.Empty(receipt.CommittedEvents);
+    }
 
     private sealed class EmptyProcessor : ISessionCommandProcessor
     {
@@ -422,6 +588,41 @@ public sealed class SchedulerAndSessionTests
     {
         public SessionCommandTypeId CommandType { get; } = new("foundation.throw");
         public OperationResult<CommandProcessorOutput> Process(SimulationExecutionContext context, AcceptedSessionCommand command) => throw new InvalidOperationException("synthetic command failure");
+    }
+
+    private sealed class MutationProcessor(Func<WorldSession, OperationResult> mutation) : ISessionCommandProcessor
+    {
+        public SessionCommandTypeId CommandType { get; } = new("foundation.mutate");
+        public WorldSession? Session { get; set; }
+        public OperationResult? MutationResult { get; private set; }
+        public OperationResult<CommandProcessorOutput> Process(SimulationExecutionContext context, AcceptedSessionCommand command)
+        {
+            MutationResult = mutation(Session!);
+            return OperationResult<CommandProcessorOutput>.Succeeded(CommandProcessorOutput.Empty);
+        }
+    }
+
+    private sealed class NestedStepProcessor : ISessionCommandProcessor
+    {
+        public SessionCommandTypeId CommandType { get; } = new("foundation.nested-step");
+        public WorldSession? Session { get; set; }
+        public TickExecutionReceipt? NestedReceipt { get; private set; }
+        public OperationResult<CommandProcessorOutput> Process(SimulationExecutionContext context, AcceptedSessionCommand command)
+        {
+            NestedReceipt = Session!.StepOneTick();
+            return OperationResult<CommandProcessorOutput>.Succeeded(CommandProcessorOutput.Empty);
+        }
+    }
+
+    private sealed class DiagnosticProcessor(bool emitIssues) : ISessionCommandProcessor
+    {
+        public SessionCommandTypeId CommandType { get; } = new("foundation.diagnostic");
+        public OperationResult<CommandProcessorOutput> Process(SimulationExecutionContext context, AcceptedSessionCommand command) => emitIssues
+            ? OperationResult<CommandProcessorOutput>.Succeeded(
+                CommandProcessorOutput.Empty,
+                Diagnostic($"processor.s{command.SequenceNumber.Value}.info", IssueSeverity.Information),
+                Diagnostic($"processor.s{command.SequenceNumber.Value}.warning", IssueSeverity.Warning))
+            : OperationResult<CommandProcessorOutput>.Succeeded(CommandProcessorOutput.Empty);
     }
 
     private sealed class FailureSystem(SimulationSystemDescriptor descriptor) : ISimulationSystem
@@ -462,6 +663,55 @@ public sealed class SchedulerAndSessionTests
     {
         public SimulationSystemDescriptor Descriptor { get; } = descriptor;
         public OperationResult<SimulationSystemOutput> Execute(SimulationExecutionContext context) => OperationResult<SimulationSystemOutput>.Failed(issues);
+    }
+
+    private sealed class SuccessfulIssueSystem(SimulationSystemDescriptor descriptor, FoundationIssue[] issues) : ISimulationSystem
+    {
+        public SimulationSystemDescriptor Descriptor { get; } = descriptor;
+        public OperationResult<SimulationSystemOutput> Execute(SimulationExecutionContext context) => OperationResult<SimulationSystemOutput>.Succeeded(SimulationSystemOutput.Empty, issues);
+    }
+
+    private sealed class DiagnosticSystem(SimulationSystemDescriptor descriptor, bool emitIssue) : ISimulationSystem
+    {
+        public SimulationSystemDescriptor Descriptor { get; } = descriptor;
+        public OperationResult<SimulationSystemOutput> Execute(SimulationExecutionContext context) => emitIssue
+            ? OperationResult<SimulationSystemOutput>.Succeeded(
+                SimulationSystemOutput.Empty,
+                Diagnostic($"system.{Descriptor.Id}", Descriptor.Id.ToString().EndsWith(".a", StringComparison.Ordinal) ? IssueSeverity.Information : IssueSeverity.Warning))
+            : OperationResult<SimulationSystemOutput>.Succeeded(SimulationSystemOutput.Empty);
+    }
+
+    private sealed class MutationSystem(SimulationSystemDescriptor descriptor, Func<WorldSession, OperationResult> mutation) : ISimulationSystem
+    {
+        public SimulationSystemDescriptor Descriptor { get; } = descriptor;
+        public WorldSession? Session { get; set; }
+        public OperationResult? MutationResult { get; private set; }
+        public OperationResult<SimulationSystemOutput> Execute(SimulationExecutionContext context)
+        {
+            MutationResult = mutation(Session!);
+            return OperationResult<SimulationSystemOutput>.Succeeded(SimulationSystemOutput.Empty);
+        }
+    }
+
+    private sealed class WrongThreadMutationSystem(SimulationSystemDescriptor descriptor) : ISimulationSystem
+    {
+        public SimulationSystemDescriptor Descriptor { get; } = descriptor;
+        public WorldSession? Session { get; set; }
+        public IReadOnlyList<OperationResult> Results { get; private set; } = [];
+
+        public OperationResult<SimulationSystemOutput> Execute(SimulationExecutionContext context)
+        {
+            IReadOnlyList<OperationResult>? results = null;
+            Thread thread = new(() => results =
+            [
+                Session!.Pause(),
+                Session.SubmitCommand(new(default, new("foundation.trace"), Payload("wrong-thread"))),
+            ]);
+            thread.Start();
+            thread.Join();
+            Results = results!;
+            return OperationResult<SimulationSystemOutput>.Succeeded(SimulationSystemOutput.Empty);
+        }
     }
 
     private sealed class ReentrantSystem(SimulationSystemDescriptor descriptor) : ISimulationSystem

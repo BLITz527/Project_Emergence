@@ -219,6 +219,23 @@ public sealed class ArchitectureTests
     }
 
     [Fact]
+    public void ProductionCallbacksAreDocumentedAndStateless()
+    {
+        string contracts = File.ReadAllText(At("src/Emergence.Simulation/ExecutionContracts.cs"));
+        Assert.Contains("Stateless simulation behavior", contracts, StringComparison.Ordinal);
+        Assert.Contains("Stateless command behavior", contracts, StringComparison.Ordinal);
+        Assert.Equal(2, contracts.Split("must not retain or mutate an authoritative", StringSplitOptions.None).Length - 1);
+
+        string fixture = File.ReadAllText(At("src/Emergence.Simulation/SessionSelfTest.cs"));
+        int start = fixture.IndexOf("private sealed class TraceCommandProcessor", StringComparison.Ordinal);
+        int end = fixture.IndexOf("private static FoundationIssue Failure", start, StringComparison.Ordinal);
+        string callbackImplementations = fixture[start..end];
+        Assert.DoesNotContain("WorldSession", callbackImplementations, StringComparison.Ordinal);
+        Assert.DoesNotContain("static WorldSession", callbackImplementations, StringComparison.Ordinal);
+        Assert.DoesNotContain("static CommandProcessorRegistry", callbackImplementations, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AppFrameCallbacksCannotAdvanceLogicalTime()
     {
         string source = File.ReadAllText(At("src/Emergence.App/MainShell.cs"));

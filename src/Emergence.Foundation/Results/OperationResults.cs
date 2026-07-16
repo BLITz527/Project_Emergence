@@ -1,11 +1,41 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Emergence.Foundation.Configuration;
 
 namespace Emergence.Foundation.Results;
 
-[JsonConverter(typeof(JsonStringEnumConverter<IssueSeverity>))]
+[JsonConverter(typeof(IssueSeverityJsonConverter))]
 public enum IssueSeverity { Information, Warning, Error, Critical }
+
+internal sealed class IssueSeverityJsonConverter : JsonConverter<IssueSeverity>
+{
+    public override IssueSeverity Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String) throw new JsonException("IssueSeverity must be an exact canonical JSON string.");
+        return reader.GetString() switch
+        {
+            "Information" => IssueSeverity.Information,
+            "Warning" => IssueSeverity.Warning,
+            "Error" => IssueSeverity.Error,
+            "Critical" => IssueSeverity.Critical,
+            _ => throw new JsonException("Unknown IssueSeverity."),
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, IssueSeverity value, JsonSerializerOptions options)
+    {
+        string text = value switch
+        {
+            IssueSeverity.Information => "Information",
+            IssueSeverity.Warning => "Warning",
+            IssueSeverity.Error => "Error",
+            IssueSeverity.Critical => "Critical",
+            _ => throw new JsonException("Undefined IssueSeverity values cannot be written."),
+        };
+        writer.WriteStringValue(text);
+    }
+}
 
 public readonly record struct IssueCode
 {
@@ -22,6 +52,7 @@ public sealed record FoundationIssue
     public FoundationIssue(IssueCode code, IssueSeverity severity, string summary, string detail)
     {
         if (code.IsEmpty) throw new ArgumentException("Issue code cannot be empty.", nameof(code));
+        if (!Enum.IsDefined(severity)) throw new ArgumentOutOfRangeException(nameof(severity));
         ArgumentNullException.ThrowIfNull(summary); ArgumentNullException.ThrowIfNull(detail);
         Code = code; Severity = severity; Summary = summary; Detail = detail;
     }
@@ -40,6 +71,7 @@ public class OperationResult
         ArgumentNullException.ThrowIfNull(issues);
         FoundationIssue[] copy = issues.ToArray();
         if (copy.Any(static issue => issue is null)) throw new ArgumentException("Issues cannot contain null.", nameof(issues));
+        if (copy.Any(static issue => !Enum.IsDefined(issue.Severity))) throw new ArgumentException("Issues cannot contain an undefined severity.", nameof(issues));
         _issues = Array.AsReadOnly(copy);
     }
     [JsonPropertyOrder(0)] public bool Success => !_issues.Any(static issue => issue.Severity is IssueSeverity.Error or IssueSeverity.Critical);

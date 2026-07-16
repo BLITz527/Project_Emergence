@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Emergence.Foundation;
 using Emergence.Foundation.Identifiers;
+using Emergence.Foundation.Randomness;
 using Emergence.Foundation.Rulesets;
 using Emergence.Foundation.Time;
+using Emergence.Foundation.Versioning;
 using Emergence.Model;
 using Emergence.Presentation.Contracts;
 using Emergence.Simulation;
@@ -84,6 +86,28 @@ public sealed class PresentationSnapshotTests
     }
 
     [Fact]
+    public void CrossSessionReceiptBindingRejectsOtherBranchOrWorld()
+    {
+        WorldSession source = IdentitySession(WorldId.FromUInt64(42), BranchId.FromUInt64(7));
+        source.Resume();
+        TickExecutionReceipt sourceReceipt = source.StepOneTick();
+
+        WorldSession otherBranch = IdentitySession(WorldId.FromUInt64(42), BranchId.FromUInt64(8));
+        otherBranch.Resume();
+        Assert.True(otherBranch.StepOneTick().Success);
+
+        WorldSession otherWorld = IdentitySession(WorldId.FromUInt64(43), BranchId.FromUInt64(7));
+        otherWorld.Resume();
+        Assert.True(otherWorld.StepOneTick().Success);
+
+        SessionPresentationSnapshotProducer producer = new();
+        Assert.Equal(source.CurrentTick, otherBranch.CurrentTick);
+        Assert.Equal(source.LastEventSequence, otherBranch.LastEventSequence);
+        Assert.Throws<ArgumentException>(() => producer.Create(otherBranch, sourceReceipt));
+        Assert.Throws<ArgumentException>(() => producer.Create(otherWorld, sourceReceipt));
+    }
+
+    [Fact]
     public void SnapshotDefensivelyCopiesEventSummaries()
     {
         List<PresentationEventSummary> source =
@@ -133,4 +157,18 @@ public sealed class PresentationSnapshotTests
     }
 
     private static WorldSession Session() => FoundationSessionFixture.CreatePausedSession(new RulesetRegistry([FoundationReferenceRuleset.Create()]));
+
+    private static WorldSession IdentitySession(WorldId worldId, BranchId branchId)
+    {
+        RulesetRegistry registry = new([FoundationReferenceRuleset.Create()]);
+        WorldSessionDefinition definition = new(
+            new WorldIdentity(worldId),
+            new BranchIdentity(worldId, branchId),
+            new RulesetKey(RulesetId.FromUInt64(1), new(1, 0, 0)),
+            registry,
+            RngSeed256.Parse(FoundationSessionFixture.Seed),
+            AlgorithmCatalog.Phase04,
+            new SchedulerGraph([]));
+        return new WorldSession(definition, [], new CommandProcessorRegistry([]));
+    }
 }

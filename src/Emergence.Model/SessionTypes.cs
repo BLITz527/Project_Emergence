@@ -20,6 +20,8 @@ public static class SessionTechnicalLimits
     public const int MaxCommittedEventsPerTick = 16384;
     /// <summary>Maximum structured issues retained for one session fault.</summary>
     public const int MaxFaultIssues = 128;
+    /// <summary>Maximum informational and warning issues preserved in one successful tick receipt.</summary>
+    public const int MaxReceiptIssuesPerTick = 128;
     /// <summary>Maximum explicitly compiled command processors in one immutable registry.</summary>
     public const int MaxCommandProcessors = 256;
 }

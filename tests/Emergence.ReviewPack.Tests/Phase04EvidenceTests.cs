@@ -24,6 +24,7 @@ public sealed class Phase04EvidenceTests
 
     [Theory]
     [InlineData("success", "false")]
+    [InlineData("phase", "M0 Phase 0.4")]
     [InlineData("phase", "M0 Phase 0.3")]
     [InlineData("version", "0.3.0-dev")]
     [InlineData("gitCommit", "ffffffffffffffffffffffffffffffffffffffff")]
@@ -140,6 +141,14 @@ public sealed class Phase04EvidenceTests
         Assert.Equal(EvidenceStatus.Failed, Phase04EvidenceValidator.Evaluate(missingLog.Root, Commit).Status);
     }
 
+    [Fact]
+    public void MissingCorrectionRegressionTestEvidenceIsRejected()
+    {
+        using Fixture fixture = new(); fixture.WriteValid();
+        File.Delete(fixture.PathOf("tests/Emergence.Simulation.Tests/Emergence.Simulation.Tests.trx"));
+        Assert.Equal(EvidenceStatus.Failed, Phase04EvidenceValidator.Evaluate(fixture.Root, Commit).Status);
+    }
+
     [Theory]
     [InlineData("success", "false")]
     [InlineData("semanticVersion", "0.3.0-dev")]
@@ -191,7 +200,7 @@ public sealed class Phase04EvidenceTests
             WriteSession(new JsonObject
             {
                 ["success"] = true,
-                ["phase"] = "M0 Phase 0.4",
+                ["phase"] = Phase04EvidenceValidator.CorrectionPhase,
                 ["version"] = "0.4.0-dev",
                 ["gitCommit"] = Commit,
                 ["algorithmCatalogDigest"] = Phase04EvidenceValidator.AlgorithmCatalogDigest,
@@ -208,6 +217,11 @@ public sealed class Phase04EvidenceTests
             Write("cli/session-self-test.log", "PROJECT_EMERGENCE_SESSION_SELF_TEST_OK\n");
             WriteJson("app/doctor.json", ValidDoctor());
             WriteJson("package/packaged-doctor.json", ValidDoctor());
+            Write("tests/Emergence.Simulation.Tests/Emergence.Simulation.Tests.trx", "ActiveStepMutationFromCommandProcessorFaultsAtomically ActiveStepMutationFromSimulationSystemFaultsAtomically ReentrantCommandProcessorFaultsWithEmptyOrNonemptyGraph SuccessfulCallbackIssuesArePreservedInDeterministicOrder ReceiptIssueLimitIsExactAndOneOverFaultsAtomically WrongThreadMutationDuringStepIsRejectedWithoutViolatingOwnerTransaction");
+            Write("tests/Emergence.Foundation.Tests/Emergence.Foundation.Tests.trx", "IssueSeverityUsesExactClosedJson");
+            Write("tests/Emergence.Model.Tests/Emergence.Model.Tests.trx", "TickReceiptDefinitionIdentityIsImmutableAndJsonStable TickReceiptIssuesAreDefensivelyCopied");
+            Write("tests/Emergence.Presentation.Contracts.Tests/Emergence.Presentation.Contracts.Tests.trx", "CrossSessionReceiptBindingRejectsOtherBranchOrWorld");
+            Write("tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.trx", "ProductionCallbacksAreDocumentedAndStateless");
         }
 
         public JsonObject Session() => JsonNode.Parse(File.ReadAllText(PathOf("cli/session-self-test.json")))!.AsObject();
@@ -226,6 +240,7 @@ public sealed class Phase04EvidenceTests
                 ["build"] = new JsonObject { ["semanticVersion"] = "0.4.0-dev", ["gitCommit"] = Commit },
                 ["checks"] = new JsonArray
                 {
+                    Check("phase.identity", Phase04EvidenceValidator.CorrectionPhase),
                     Check("session.definition", Phase04EvidenceValidator.SessionDefinitionDigest),
                     Check("session.scheduler", Phase04EvidenceValidator.SchedulerGraphDigest),
                     Check("presentation.snapshot", snapshot),
