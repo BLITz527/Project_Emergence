@@ -131,6 +131,24 @@ public sealed class ConfigurationAndResultTests
         Assert.Equal(0, resultDocument.RootElement.GetProperty("value").GetInt32());
     }
 
+    [Fact]
+    public void IssueSeverityUsesExactClosedJson()
+    {
+        foreach (IssueSeverity severity in Enum.GetValues<IssueSeverity>())
+        {
+            string expected = $"\"{severity}\"";
+            Assert.Equal(expected, JsonSerializer.Serialize(severity, JsonDefaults.Compact));
+            Assert.Equal(severity, JsonSerializer.Deserialize<IssueSeverity>(expected, JsonDefaults.Compact));
+        }
+
+        string[] rejected = ["0", "99", "\"0\"", "\"warning\"", "\" Warning\"", "\"Warning \"", "\"Unknown\""];
+        foreach (string json in rejected)
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<IssueSeverity>(json, JsonDefaults.Compact));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => Issue((IssueSeverity)99));
+        Assert.Throws<JsonException>(() => JsonSerializer.Serialize((IssueSeverity)99, JsonDefaults.Compact));
+    }
+
     private static FoundationIssue Issue(IssueSeverity severity) => new(new IssueCode("foundation.test-issue"), severity, "summary", "detail");
 
     private static IEnumerable<ConfigurationEntry[]> Permute(ConfigurationEntry[] values)

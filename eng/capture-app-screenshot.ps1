@@ -52,7 +52,7 @@ public static class EmergenceWindowCapture {
         $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
     } finally { $bitmap.Dispose() }
 
-    'PASSED: normal FOUNDATION / M0.3 shell launched, rendered, was captured fresh, and closed cleanly.' |
+    'PASSED: normal FOUNDATION / M0.4R shell launched with Paused tick 0 and no biological state, rendered, was captured fresh, and closed cleanly.' |
         Out-File -FilePath (Join-Path $output 'manual-launch-status.txt') -Encoding utf8
 } finally {
     if (-not $process.HasExited) {

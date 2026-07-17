@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../Emergence.Foundation/Emergence.Foundation.csproj" />
+    <ProjectReference Include="../Emergence.Model/Emergence.Model.csproj" />
   </ItemGroup>
 </Project>

@@ -87,7 +87,28 @@ public sealed record CliEvidence(
     CliCommandEvidence Phase01SelfTest,
     CliCommandEvidence Phase02DomainSelfTest,
     CliCommandEvidence? RngSelfTest = null,
-    CliCommandEvidence? RulesetValidation = null);
+    CliCommandEvidence? RulesetValidation = null,
+    CliCommandEvidence? SessionSelfTest = null);
+
+public sealed record SessionEvidence(
+    string Command,
+    EvidenceStatus Status,
+    string Phase,
+    string Version,
+    string GitCommit,
+    string AlgorithmCatalogDigest,
+    string SchedulerGraphDigest,
+    string SessionDefinitionDigest,
+    string SessionTraceDigest,
+    string FinalStateDigest,
+    string FinalTick,
+    int AcceptedCommandCount,
+    int CommittedEventCount,
+    IReadOnlyList<string> EventIds,
+    bool PresentationSnapshotValid,
+    string AppSessionStatus,
+    IReadOnlyList<string> EvidencePaths,
+    string Detail);
 
 public sealed record RngEvidence(
     string Command,
@@ -147,7 +168,8 @@ public sealed record ReviewManifest(
     IReadOnlyList<ReviewFileEntry> Files,
     IReadOnlyList<string> Warnings,
     RngEvidence? Rng = null,
-    RulesetEvidence? Rulesets = null);
+    RulesetEvidence? Rulesets = null,
+    SessionEvidence? Session = null);
 
 public sealed record VerificationResult(
     bool Success,

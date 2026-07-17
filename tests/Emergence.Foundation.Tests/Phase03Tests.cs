@@ -88,4 +88,22 @@ public sealed class Phase03Tests
         Assert.Throws<ArgumentException>(() => new ImmutableConfiguration(new("foundation.test"), default, [new(default, ConfigurationValue.FromBoolean(true))]));
         Assert.Throws<ArgumentException>(() => new FoundationIssue(default, IssueSeverity.Error, "summary", "detail"));
     }
+
+    [Theory]
+    [InlineData("{\"kind\":0,\"value\":false}")]
+    [InlineData("{\"kind\":\"0\",\"value\":false}")]
+    [InlineData("{\"kind\":\"boolean\",\"value\":false}")]
+    [InlineData("{\"kind\":\" Boolean\",\"value\":false}")]
+    [InlineData("{\"kind\":\"Unknown\",\"value\":false}")]
+    public void ConfigurationValueKindJsonRequiresExactCanonicalNames(string json) =>
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ConfigurationValue>(json, JsonDefaults.Compact));
+
+    [Fact]
+    public void DefaultRngAndRulesetDurableValuesCannotWriteJson()
+    {
+        Assert.Throws<JsonException>(() => JsonSerializer.Serialize(default(RngDomainId), JsonDefaults.Compact));
+        Assert.Throws<JsonException>(() => JsonSerializer.Serialize(default(RngScopeKey), JsonDefaults.Compact));
+        Assert.Throws<JsonException>(() => JsonSerializer.Serialize(default(RngSampleAddress), JsonDefaults.Compact));
+        Assert.Throws<JsonException>(() => JsonSerializer.Serialize(default(RulesetKey), JsonDefaults.Compact));
+    }
 }

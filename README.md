@@ -1,6 +1,6 @@
 # Project Emergence
 
-Project Emergence is in **Milestone 0, Phase 0.3**. This phase establishes stateless addressed deterministic RNG and a strict immutable foundation ruleset registry. It does **not** contain world state, cells, organisms, biological simulation, biological RNG domains, or fake-life animation.
+Project Emergence is in **Milestone 0, Phase 0.4R**. This correction hardens the authoritative in-memory world session so callback attempts to mutate or reenter an active tick fault atomically. Successful callback diagnostics are preserved in immutable session-bound receipts, `IssueSeverity` is an exact closed set, and presentation rejects receipts from another world or branch. The fixture remains deliberately nonbiological.
 
 ## Requirements
 
@@ -20,23 +20,26 @@ The immutable authoritative design archive is under `docs/design/v1.0/` with SHA
 .\eng\doctor.ps1
 ```
 
-Direct CLI commands are `version`, `doctor`, the preserved `self-test` and `domain-self-test`, plus `rng-self-test` and `ruleset validate --directory <path>`. The Phase 0.3 commands lock the addressed-RNG vectors and every reference-ruleset digest.
+Direct CLI commands are `version`, `doctor`, the preserved `self-test`, `domain-self-test`, `rng-self-test`, and `ruleset validate --directory <path>`, plus the Phase 0.4R `session-self-test`. These commands lock all prior vectors and the scheduler/session/event/state vectors.
 
 ```powershell
 dotnet run --project .\src\Emergence.Cli -- rng-self-test
 dotnet run --project .\src\Emergence.Cli -- ruleset validate --directory .\rulesets
+dotnet run --project .\src\Emergence.Cli -- session-self-test
 ```
 
-With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell remains a nonbiological presentation host and displays `FOUNDATION / M0.3`; source and packaged smoke modes validate the reference registry.
+With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell consumes an actual immutable paused-at-tick-zero snapshot and displays `FOUNDATION / M0.4R`; it never advances logical time from rendering or frame callbacks.
 
 ## Repository map
 
-- `src/Emergence.Foundation` — immutable values, canonical hashing, addressed RNG, ruleset domain types, diagnostics, and self-tests
-- `src/Emergence.Persistence` — bounded untrusted ruleset-directory loading
+- `src/Emergence.Foundation` — immutable primitives, canonical hashing, addressed RNG, rulesets, diagnostics, and algorithm catalogs
+- `src/Emergence.Model` — immutable session, scheduler-graph, command, event, and receipt contracts
+- `src/Emergence.Simulation` — mutable single-owner world-session execution and snapshot production
+- `src/Emergence.Presentation.Contracts` — immutable, non-Godot presentation DTOs
+- `src/Emergence.Persistence` — bounded untrusted ruleset-directory loading; no session save format
 - `src/Emergence.Cli` — headless evidence commands
 - `src/Emergence.App` — Godot presentation host only
-- other `src/Emergence.*` projects — preserved dependency boundaries; Model remains marker-only
-- `tests` — Foundation, Persistence, architecture, CLI, and review-evidence tests
-- `tools/Emergence.ReviewPack` — exact review snapshot and semantic verifier
+- `tests` — eight focused test projects, including Model, Simulation, and Presentation contracts
+- `tools/Emergence.ReviewPack` — exact review snapshot and independent semantic verifier
 - `eng` — repeatable build, test, diagnostics, App, package, and review workflows
 - `docs` — active decisions and the immutable imported design baseline

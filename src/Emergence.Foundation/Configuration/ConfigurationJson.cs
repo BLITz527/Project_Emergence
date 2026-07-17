@@ -11,7 +11,18 @@ internal sealed class ConfigurationValueJsonConverter : JsonConverter<Configurat
     {
         using JsonDocument document = JsonDocument.ParseValue(ref reader);
         JsonElement root = document.RootElement;
-        if (!Enum.TryParse(root.GetProperty("kind").GetString(), false, out ConfigurationValueKind kind)) throw new JsonException("Unknown configuration value kind.");
+        JsonElement kindElement = root.GetProperty("kind");
+        if (kindElement.ValueKind != JsonValueKind.String) throw new JsonException("Configuration value kind must be an exact canonical string.");
+        ConfigurationValueKind kind = kindElement.GetString() switch
+        {
+            "Boolean" => ConfigurationValueKind.Boolean,
+            "Int64" => ConfigurationValueKind.Int64,
+            "UInt64" => ConfigurationValueKind.UInt64,
+            "Decimal" => ConfigurationValueKind.Decimal,
+            "String" => ConfigurationValueKind.String,
+            "Digest" => ConfigurationValueKind.Digest,
+            _ => throw new JsonException("Unknown configuration value kind."),
+        };
         JsonElement value = root.GetProperty("value");
         try
         {
@@ -31,6 +42,7 @@ internal sealed class ConfigurationValueJsonConverter : JsonConverter<Configurat
 
     public override void Write(Utf8JsonWriter writer, ConfigurationValue value, JsonSerializerOptions options)
     {
+        if (!Enum.IsDefined(value.Kind)) throw new JsonException("Undefined configuration value kinds cannot be written.");
         writer.WriteStartObject();
         writer.WriteString("kind", value.Kind.ToString());
         writer.WritePropertyName("value");

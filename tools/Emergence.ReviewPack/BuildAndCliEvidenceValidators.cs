@@ -57,7 +57,7 @@ public static class BuildEvidenceValidator
         {
             AssemblyInventoryEntry? entry = entries.FirstOrDefault(item => item.Assembly == assembly && item.Configuration == "Release");
             if (entry is null) { errors.Add($"Release assembly is missing from inventory: {assembly}."); continue; }
-            if (entry.AssemblyVersion != "0.3.0.0" || !entry.InformationalVersion.StartsWith(expectedVersion + "+", StringComparison.Ordinal)
+            if (entry.AssemblyVersion != "0.4.0.0" || !entry.InformationalVersion.StartsWith(expectedVersion + "+", StringComparison.Ordinal)
                 || !entry.GitCommit.Equals(expectedCommit, StringComparison.OrdinalIgnoreCase) || entry.TargetFramework != expectedFramework)
             {
                 errors.Add($"Assembly metadata mismatch: {assembly}.");
@@ -85,11 +85,12 @@ public static class CliEvidenceValidator
         CliCommandEvidence phase02 = ReadDomainSelfTest(reviewRoot);
         CliCommandEvidence rng = ReadSuccessReport(reviewRoot, "rng-self-test", "cli/rng-self-test.json", "cli/rng-self-test.log");
         CliCommandEvidence rulesets = ReadSuccessReport(reviewRoot, "ruleset-validation", "cli/ruleset-validation.json", "cli/ruleset-validation.log");
-        return new(version, doctor, phase01, phase02, rng, rulesets);
+        CliCommandEvidence session = ReadSuccessReport(reviewRoot, "session-self-test", "cli/session-self-test.json", "cli/session-self-test.log");
+        return new(version, doctor, phase01, phase02, rng, rulesets, session);
     }
 
     public static bool IsPassed(CliEvidence evidence) =>
-        new[] { evidence.Version, evidence.Doctor, evidence.Phase01SelfTest, evidence.Phase02DomainSelfTest, evidence.RngSelfTest, evidence.RulesetValidation }.All(static outcome => outcome is not null && outcome.Status == EvidenceStatus.Passed && outcome.Success);
+        new[] { evidence.Version, evidence.Doctor, evidence.Phase01SelfTest, evidence.Phase02DomainSelfTest, evidence.RngSelfTest, evidence.RulesetValidation, evidence.SessionSelfTest }.All(static outcome => outcome is not null && outcome.Status == EvidenceStatus.Passed && outcome.Success);
 
     private static CliCommandEvidence ReadSuccessReport(string root, string name, string data, string log)
     {

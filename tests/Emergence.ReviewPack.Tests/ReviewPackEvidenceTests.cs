@@ -19,7 +19,7 @@ public sealed class ReviewPackEvidenceTests
 
         TestEvidence result = Parse(trx, coverage);
 
-        Assert.Equal(EvidenceStatus.Passed, result.Status);
+        Assert.True(result.Status == EvidenceStatus.Passed, result.Detail);
         Assert.Equal((7, 7, 7, 0, 0), (result.Total, result.Executed, result.Passed, result.Failed, result.SkippedNotExecuted));
     }
 
@@ -100,8 +100,8 @@ public sealed class ReviewPackEvidenceTests
 
         PackageEvidence result = PackageEvidenceValidator.Evaluate(fixture.Root, Commit, Framework);
 
-        Assert.Equal(EvidenceStatus.Passed, result.Status);
-        Assert.Equal(2, result.PackageFileCount);
+        Assert.True(result.Status == EvidenceStatus.Passed, result.Detail);
+        Assert.Equal(5, result.PackageFileCount);
     }
 
     [Theory]
@@ -238,71 +238,71 @@ public sealed class ReviewPackEvidenceTests
     public void BuildLogWithFailureIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); fixture.Write("build/build-debug.log", "Build FAILED.\n0 Warning(s)\n1 Error(s)");
-        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Debug.Status);
+        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Debug.Status);
     }
 
     [Fact]
     public void NonzeroBuildWarningIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); fixture.Write("build/build-debug.log", "Build succeeded.\n1 Warning(s)\n0 Error(s)");
-        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Debug.Status);
+        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Debug.Status);
     }
 
     [Fact]
     public void MissingReleaseLogIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); File.Delete(fixture.PathOf("build/build-release.log"));
-        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Release.Status);
+        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Release.Status);
     }
 
     [Fact]
     public void AssemblyMetadataMismatchIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); string path = fixture.PathOf("build/assemblies.json"); fixture.Write("build/assemblies.json", File.ReadAllText(path).Replace(Commit, new string('f', 40), StringComparison.Ordinal));
-        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).AssemblyInventory.Status);
+        Assert.Equal(EvidenceStatus.Failed, BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).AssemblyInventory.Status);
     }
 
     [Fact]
     public void CliDoctorSuccessFalseIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); fixture.Write("cli/doctor.json", DoctorJson(false));
-        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Doctor.Status);
+        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Doctor.Status);
     }
 
     [Fact]
     public void Phase01VectorMismatchIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); fixture.Write("cli/self-test.json", "{\"success\":true,\"sha256\":\"bad\"}");
-        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Phase01SelfTest.Status);
+        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Phase01SelfTest.Status);
     }
 
     [Fact]
     public void Phase02CanonicalDigestMismatchIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); string path = fixture.PathOf("cli/domain-self-test.json"); fixture.Write("cli/domain-self-test.json", File.ReadAllText(path).Replace(CliEvidenceValidator.Phase02CanonicalDigest, new string('0', 64), StringComparison.Ordinal));
-        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Phase02DomainSelfTest.Status);
+        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Phase02DomainSelfTest.Status);
     }
 
     [Fact]
     public void CliVersionMismatchIsRejected()
     {
-        using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); string path = fixture.PathOf("cli/version.txt"); fixture.Write("cli/version.txt", File.ReadAllText(path).Replace("0.3.0-dev", "0.1.0-dev", StringComparison.Ordinal));
-        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Version.Status);
+        using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); string path = fixture.PathOf("cli/version.txt"); fixture.Write("cli/version.txt", File.ReadAllText(path).Replace("0.4.0-dev", "0.1.0-dev", StringComparison.Ordinal));
+        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Version.Status);
     }
 
     [Fact]
     public void ReviewedGitCommitMismatchIsRejected()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture); string path = fixture.PathOf("cli/version.txt"); fixture.Write("cli/version.txt", File.ReadAllText(path).Replace(Commit, new string('a', 40), StringComparison.Ordinal));
-        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework).Version.Status);
+        Assert.Equal(EvidenceStatus.Failed, CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework).Version.Status);
     }
 
     [Fact]
     public void ValidBuildAndCliFixturesPass()
     {
         using TemporaryDirectory fixture = new(); CreateBuildAndCliEvidence(fixture);
-        Assert.True(BuildEvidenceValidator.IsPassed(BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework)));
-        Assert.True(CliEvidenceValidator.IsPassed(CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.3.0-dev", Framework)));
+        Assert.True(BuildEvidenceValidator.IsPassed(BuildEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework)));
+        Assert.True(CliEvidenceValidator.IsPassed(CliEvidenceValidator.Evaluate(fixture.Root, Commit, "0.4.0-dev", Framework)));
     }
 
     private static TestEvidence Parse(string trx, string coverage) =>
@@ -326,10 +326,10 @@ public sealed class ReviewPackEvidenceTests
         fixture.Write("build/build-debug.log", "Build succeeded.\n0 Warning(s)\n0 Error(s)");
         fixture.Write("build/build-release.log", "Build succeeded.\n0 Warning(s)\n0 Error(s)");
         string[] assemblies = ["Emergence.Foundation", "Emergence.Model", "Emergence.Simulation", "Emergence.Analytics", "Emergence.History", "Emergence.Persistence", "Emergence.Presentation.Contracts", "Emergence.Cli", "Emergence.App", "Emergence.ReviewPack"];
-        AssemblyInventoryEntry[] inventory = assemblies.Select(name => new AssemblyInventoryEntry(name, "Release", $"src/{name}/bin/Release/net10.0/{name}.dll", "0.3.0.0", $"0.3.0-dev+{Commit}", Commit, Framework)).ToArray();
+        AssemblyInventoryEntry[] inventory = assemblies.Select(name => new AssemblyInventoryEntry(name, "Release", $"src/{name}/bin/Release/net10.0/{name}.dll", "0.4.0.0", $"0.4.0-dev+{Commit}", Commit, Framework)).ToArray();
         fixture.Write("build/assemblies.json", JsonSerializer.Serialize(inventory, ReviewPackJson.Options));
 
-        fixture.Write("cli/version.txt", $"Product: Project Emergence\nVersion: 0.3.0-dev\nGit commit: {Commit}\nTarget framework: {Framework}\n");
+        fixture.Write("cli/version.txt", $"Product: Project Emergence\nVersion: 0.4.0-dev\nGit commit: {Commit}\nTarget framework: {Framework}\n");
         fixture.Write("cli/doctor.log", "Wrote doctor.json");
         fixture.Write("cli/doctor.json", DoctorJson(true));
         fixture.Write("cli/self-test.log", "Wrote self-test.json");
@@ -340,6 +340,8 @@ public sealed class ReviewPackEvidenceTests
         fixture.Write("cli/rng-self-test.json", "{\"success\":true}");
         fixture.Write("cli/ruleset-validation.log", "Wrote ruleset-validation.json");
         fixture.Write("cli/ruleset-validation.json", "{\"success\":true}");
+        fixture.Write("cli/session-self-test.log", "Wrote session-self-test.json");
+        fixture.Write("cli/session-self-test.json", "{\"success\":true}");
     }
 
     private static void CreatePackageEvidence(TemporaryDirectory fixture, bool doctorSuccess = true, bool omitManifestEntry = false, bool mismatchHash = false)
@@ -348,6 +350,10 @@ public sealed class ReviewPackEvidenceTests
         Directory.CreateDirectory(packageRoot);
         string executable = fixture.Write("package/windows-x86_64/ProjectEmergence.exe", "exe");
         string ruleset = fixture.Write("package/windows-x86_64/rulesets/foundation-reference.ruleset.json", "ruleset");
+        fixture.Write("source/rulesets/foundation-reference.ruleset.json", "ruleset");
+        string model = fixture.Write("package/windows-x86_64/data_Emergence.App_windows_x86_64/Emergence.Model.dll", "model");
+        string simulation = fixture.Write("package/windows-x86_64/data_Emergence.App_windows_x86_64/Emergence.Simulation.dll", "simulation");
+        string presentation = fixture.Write("package/windows-x86_64/data_Emergence.App_windows_x86_64/Emergence.Presentation.Contracts.dll", "presentation");
         fixture.Write("package/package-status.txt", "PASSED: fixture\n");
         fixture.Write("package/packaged-smoke.log", "PROJECT_EMERGENCE_SMOKE_OK\n");
         fixture.Write("package/packaged-doctor.json", DoctorJson(doctorSuccess));
@@ -359,6 +365,9 @@ public sealed class ReviewPackEvidenceTests
                 new FileInfo(executable).Length,
                 mismatchHash ? new string('0', 64) : EvidencePaths.HashFile(executable)));
             entries.Add(new PackageFileEntry("rulesets/foundation-reference.ruleset.json", new FileInfo(ruleset).Length, EvidencePaths.HashFile(ruleset)));
+            entries.Add(new PackageFileEntry("data_Emergence.App_windows_x86_64/Emergence.Model.dll", new FileInfo(model).Length, EvidencePaths.HashFile(model)));
+            entries.Add(new PackageFileEntry("data_Emergence.App_windows_x86_64/Emergence.Simulation.dll", new FileInfo(simulation).Length, EvidencePaths.HashFile(simulation)));
+            entries.Add(new PackageFileEntry("data_Emergence.App_windows_x86_64/Emergence.Presentation.Contracts.dll", new FileInfo(presentation).Length, EvidencePaths.HashFile(presentation)));
         }
         fixture.Write("package/package-manifest.json", JsonSerializer.Serialize(entries, ReviewPackJson.Options));
     }
@@ -366,8 +375,9 @@ public sealed class ReviewPackEvidenceTests
     private static string DoctorJson(bool success) => $$"""
         {
           "success": {{success.ToString().ToLowerInvariant()}},
-          "build": { "semanticVersion": "0.3.0-dev", "gitCommit": "{{Commit}}", "targetFramework": "{{Framework}}" },
+          "build": { "semanticVersion": "0.4.0-dev", "gitCommit": "{{Commit}}", "targetFramework": "{{Framework}}" },
           "checks": [
+            { "id": "phase.identity", "severity": "Success", "detail": "M0 Phase 0.4R" },
             { "id": "process.architecture", "severity": "Success", "detail": "x64" },
             { "id": "runtime.dotnet", "severity": "Success", "detail": ".NET 10" },
             { "id": "runtime.mode", "severity": "Success", "detail": "fixture" },
@@ -377,7 +387,13 @@ public sealed class ReviewPackEvidenceTests
             { "id": "runtime.godot", "severity": "Success", "detail": "4.7" },
             { "id": "ruleset.registry", "severity": "Success", "detail": "count=1;digest={{Phase03EvidenceValidator.RegistryDigest}}" },
             { "id": "rng.algorithm", "severity": "Success", "detail": "{{Phase03EvidenceValidator.AlgorithmDigest}}" },
-            { "id": "rng.domains", "severity": "Success", "detail": "{{Phase03EvidenceValidator.DomainDigest}}" }
+            { "id": "rng.domains", "severity": "Success", "detail": "{{Phase03EvidenceValidator.DomainDigest}}" },
+            { "id": "session.definition", "severity": "Success", "detail": "{{Phase04EvidenceValidator.SessionDefinitionDigest}}" },
+            { "id": "session.scheduler", "severity": "Success", "detail": "{{Phase04EvidenceValidator.SchedulerGraphDigest}}" },
+            { "id": "presentation.snapshot", "severity": "Success", "detail": "world=0000000000000000000000000000002a;branch=00000000000000000000000000000007;tick=0;status=Paused;definition={{Phase04EvidenceValidator.SessionDefinitionDigest}};state={{new string('a', 64)}}" },
+            { "id": "presentation.nonbiological", "severity": "Success", "detail": "hasBiologicalState=false" },
+            { "id": "presentation.no-mutation", "severity": "Success", "detail": "before={{new string('b', 64)}};after={{new string('b', 64)}}" },
+            { "id": "session.core-headless", "severity": "Success", "detail": "Emergence.Simulation" }
           ]
         }
         """;
@@ -394,9 +410,9 @@ public sealed class ReviewPackEvidenceTests
     }
 
     private static ReviewManifest EmptyManifest(string root) => new(
-        4,
+        5,
         "Project Emergence",
-        "M0 Phase 0.3",
+        "M0 Phase 0.4R",
         DateTime.UnixEpoch,
         root,
         root,

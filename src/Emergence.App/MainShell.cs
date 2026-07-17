@@ -2,7 +2,10 @@ using System.Runtime.InteropServices;
 using Emergence.Foundation;
 using Emergence.Foundation.Randomness;
 using Emergence.Foundation.Versioning;
+using Emergence.Model;
 using Emergence.Persistence.Rulesets;
+using Emergence.Presentation.Contracts;
+using Emergence.Simulation;
 using Godot;
 
 namespace Emergence.App;
@@ -11,6 +14,8 @@ public partial class MainShell : Control
 {
     private Label? _statusLabel;
     private RichTextLabel? _diagnostics;
+    private WorldSession? _session;
+    private SessionPresentationSnapshot? _snapshot;
 
     public override void _Ready()
     {
@@ -28,9 +33,13 @@ public partial class MainShell : Control
         if (arguments.Contains("--smoke-exit", StringComparer.Ordinal))
         {
             RulesetDirectoryLoadResult rulesets = LoadRulesets();
-            bool success = IsExpectedRegistry(rulesets);
-            if (success) GD.Print("PROJECT_EMERGENCE_SMOKE_OK: main scene initialized; reference ruleset validated");
-            else GD.PushError("PROJECT_EMERGENCE_SMOKE_FAILED: reference ruleset validation failed");
+            bool success = TryCreateSessionSnapshot(rulesets, out _, out SessionPresentationSnapshot? snapshot, out string detail)
+                && snapshot is not null
+                && snapshot.Tick.Value == UInt128.Zero
+                && snapshot.Status == WorldSessionStatus.Paused
+                && !snapshot.HasBiologicalState;
+            if (success) GD.Print("PROJECT_EMERGENCE_SMOKE_OK: main scene initialized; reference ruleset and paused nonbiological session validated");
+            else GD.PushError($"PROJECT_EMERGENCE_SMOKE_FAILED: {detail}");
             GetTree().Quit(success ? 0 : 1);
             return true;
         }
@@ -73,11 +82,11 @@ public partial class MainShell : Control
         layout.AddThemeConstantOverride("separation", 14);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.3", 14, accent);
+        Label eyebrow = Label("FOUNDATION / M0.4R", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
-        Label subtitle = Label("Milestone 0 — Deterministic RNG and Rulesets", 20, muted);
+        Label subtitle = Label("Milestone 0 — World Session and Deterministic Scheduler", 20, muted);
         layout.AddChild(subtitle);
 
         HSeparator separator = new();
@@ -86,18 +95,20 @@ public partial class MainShell : Control
 
         BuildDetails build = BuildInfo.Current;
         RulesetDirectoryLoadResult rulesets = LoadRulesets();
+        bool sessionReady = TryCreateSessionSnapshot(rulesets, out _session, out _snapshot, out string sessionDetail);
         GridContainer facts = new() { Columns = 2 };
         facts.AddThemeConstantOverride("h_separation", 32);
         facts.AddThemeConstantOverride("v_separation", 8);
         AddFact(facts, "BUILD", build.InformationalVersion, muted, primary);
         AddFact(facts, ".NET", RuntimeInformation.FrameworkDescription, muted, primary);
         AddFact(facts, "GODOT", Engine.GetVersionInfo()["string"].AsString(), muted, primary);
-        AddFact(facts, "RNG", "Addressed SHA-256 V1", muted, accent);
         AddFact(facts, "RULESETS", IsExpectedRegistry(rulesets) ? $"1 validated · {rulesets.Registry!.Digest.ToString()[..12]}…" : "validation failed", muted, IsExpectedRegistry(rulesets) ? accent : new Color("e06c75"));
-        AddFact(facts, "STATUS", "Ready — foundation services nominal", muted, accent);
+        AddFact(facts, "SESSION", sessionReady ? $"{_snapshot!.Status} · tick {_snapshot.Tick}" : sessionDetail, muted, sessionReady ? accent : new Color("e06c75"));
+        AddFact(facts, "STATE", sessionReady ? $"{_snapshot!.StateDigest.ToString()[..12]}… · no biological state" : "unavailable", muted, sessionReady ? accent : new Color("e06c75"));
+        AddFact(facts, "STATUS", sessionReady ? "Paused — logical time is not advancing" : "session validation failed", muted, sessionReady ? accent : new Color("e06c75"));
         layout.AddChild(facts);
 
-        _statusLabel = Label("No world or biological simulation exists in this phase.", 15, muted);
+        _statusLabel = Label("Nonbiological foundation only: no cells, fields, regions, or biological world state exist.", 15, muted);
         _statusLabel.CustomMinimumSize = new Vector2(0, 44);
         layout.AddChild(_statusLabel);
 
@@ -136,6 +147,11 @@ public partial class MainShell : Control
         DiagnosticReport foundation = RuntimeDiagnostics.Run("godot-app", "ProjectEmergence.exe");
         List<DiagnosticCheck> checks = foundation.Checks.ToList();
         checks.Add(new DiagnosticCheck(
+            "phase.identity",
+            DiagnosticSeverity.Success,
+            "Correction evidence phase",
+            "M0 Phase 0.4R"));
+        checks.Add(new DiagnosticCheck(
             "runtime.godot",
             DiagnosticSeverity.Success,
             "Godot runtime",
@@ -156,6 +172,53 @@ public partial class MainShell : Control
             RngDomainCatalog.Phase03.Digest.ToString() == FoundationRngSelfTest.ExpectedDomainDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
             "Phase 0.3 RNG domain catalog",
             RngDomainCatalog.Phase03.Digest.ToString()));
+        if (TryCreateSessionSnapshot(rulesets, out WorldSession? session, out SessionPresentationSnapshot? snapshot, out string sessionDetail)
+            && session is not null && snapshot is not null)
+        {
+            string before = session.StateDigest.ToString();
+            SessionPresentationSnapshot repeated = new SessionPresentationSnapshotProducer().Create(session);
+            string after = session.StateDigest.ToString();
+            checks.Add(new DiagnosticCheck(
+                "session.definition",
+                session.Definition.Digest.ToString() == FoundationSessionFixture.ExpectedDefinitionDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "World-session definition",
+                session.Definition.Digest.ToString()));
+            checks.Add(new DiagnosticCheck(
+                "session.scheduler",
+                session.Definition.SchedulerGraphDigest.ToString() == FoundationSessionFixture.ExpectedSchedulerGraphDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Deterministic scheduler graph",
+                session.Definition.SchedulerGraphDigest.ToString()));
+            bool matches = snapshot.WorldId == session.Definition.WorldIdentity.WorldId
+                && snapshot.BranchId == session.Definition.BranchIdentity.BranchId
+                && snapshot.Tick == session.CurrentTick
+                && snapshot.Status == session.Status;
+            checks.Add(new DiagnosticCheck(
+                "presentation.snapshot",
+                matches ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Immutable presentation snapshot",
+                $"world={snapshot.WorldId};branch={snapshot.BranchId};tick={snapshot.Tick};status={snapshot.Status};definition={snapshot.SessionDefinitionDigest};state={snapshot.StateDigest}"));
+            checks.Add(new DiagnosticCheck(
+                "presentation.nonbiological",
+                !snapshot.HasBiologicalState ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Biological state declaration",
+                $"hasBiologicalState={snapshot.HasBiologicalState.ToString().ToLowerInvariant()}"));
+            checks.Add(new DiagnosticCheck(
+                "presentation.no-mutation",
+                before == after && repeated.StateDigest == snapshot.StateDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Snapshot creation preserves authoritative state",
+                $"before={before};after={after}"));
+            bool headless = !typeof(WorldSession).Assembly.GetReferencedAssemblies().Any(static item => item.Name?.StartsWith("Godot", StringComparison.Ordinal) == true)
+                && !typeof(WorldSessionDefinition).Assembly.GetReferencedAssemblies().Any(static item => item.Name?.StartsWith("Godot", StringComparison.Ordinal) == true);
+            checks.Add(new DiagnosticCheck(
+                "session.core-headless",
+                headless ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Core assemblies are Godot-free",
+                headless ? "Model and Simulation have no Godot reference." : "A core assembly references Godot."));
+        }
+        else
+        {
+            checks.Add(new DiagnosticCheck("session.fixture", DiagnosticSeverity.Failure, "Paused nonbiological session fixture", sessionDetail));
+        }
         return foundation with { Success = checks.All(check => check.Severity != DiagnosticSeverity.Failure), Checks = checks };
     }
 
@@ -172,6 +235,35 @@ public partial class MainShell : Control
     private static bool IsExpectedRegistry(RulesetDirectoryLoadResult result) =>
         result.Success && result.Registry?.Entries.Count == 1
         && result.Registry.Digest.ToString() == "0f04aa596563a6c706ad4177d7b48b19ea44f5ac62c1cd823203531568f33a4d";
+
+    private static bool TryCreateSessionSnapshot(
+        RulesetDirectoryLoadResult rulesets,
+        out WorldSession? session,
+        out SessionPresentationSnapshot? snapshot,
+        out string detail)
+    {
+        session = null;
+        snapshot = null;
+        if (!IsExpectedRegistry(rulesets) || rulesets.Registry is null)
+        {
+            detail = "reference ruleset validation failed";
+            return false;
+        }
+        try
+        {
+            session = FoundationSessionFixture.CreatePausedSession(rulesets.Registry);
+            snapshot = new SessionPresentationSnapshotProducer().Create(session);
+            detail = "paused nonbiological session ready";
+            return snapshot.Status == WorldSessionStatus.Paused && snapshot.Tick.Value == UInt128.Zero && !snapshot.HasBiologicalState;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            detail = $"{exception.GetType().Name}: {exception.Message}";
+            session = null;
+            snapshot = null;
+            return false;
+        }
+    }
 
     private static Label Label(string text, int size, Color color)
     {
