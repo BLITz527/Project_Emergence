@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using Emergence.Foundation;
 using Emergence.Persistence.Rulesets;
+using Emergence.Persistence.WorldPackages;
 using Emergence.Simulation;
 
 namespace Emergence.Cli;
@@ -31,7 +32,9 @@ public static class CliApplication
             "domain-self-test" => Task.FromResult(DomainSelfTest(args, output, error)),
             "rng-self-test" => Task.FromResult(RngSelfTest(args, output, error)),
             "session-self-test" => Task.FromResult(SessionSelfTestCommand(args, output, error)),
+            "persistence-self-test" => Task.FromResult(PersistenceSelfTestCommand(args, output, error)),
             "ruleset" => Task.FromResult(Ruleset(args, output, error)),
+            "world-package" => Task.FromResult(WorldPackage(args, output, error)),
             _ => Task.FromResult(Invalid(args[0], error)),
         };
     }
@@ -104,6 +107,57 @@ public static class CliApplication
         return WriteReport(report, path, output, report.Success);
     }
 
+    private static int PersistenceSelfTestCommand(string[] args, TextWriter output, TextWriter error)
+    {
+        if (!TryJsonPath(args, out string? path, out string? message)) return UsageError(message!, error);
+        PersistenceSelfTestReport report = PersistenceSelfTest.Run();
+        return WriteReport(report, path, output, report.Success);
+    }
+
+    private static int WorldPackage(string[] args, TextWriter output, TextWriter error)
+    {
+        if (args.Length is not (3 or 5)
+            || args[1] is not ("verify" or "recover" or "fixture")
+            || string.IsNullOrWhiteSpace(args[2])
+            || (args.Length == 5 && (args[3] != "--json" || string.IsNullOrWhiteSpace(args[4]))))
+            return UsageError("world-package requires 'verify <path>', 'recover <path>', or 'fixture <path>' and optionally '--json <path>'.", error);
+        string input = args[2];
+        string? jsonPath = args.Length == 5 ? args[4] : null;
+        if (args[1] == "recover")
+        {
+            RecoveryResult recovery = new WorldPackageRecovery().Recover(input);
+            return WriteReport(recovery, jsonPath, output, recovery.Success);
+        }
+        if (args[1] == "fixture")
+        {
+            WorldPackageSaveResult save = new WorldPackageWriter().Save(input, PersistenceSelfTest.CreateFixtureSnapshot());
+            return WriteReport(save, jsonPath, output, save.Success);
+        }
+
+        WorldPackageLoadResult load = new WorldPackageReader().Load(input);
+        List<WorldPackageIssue> issues = load.Issues.ToList();
+        bool compatible = false;
+        if (load.Success && load.Document is not null)
+        {
+            var compatibility = SessionCompatibilityValidator.Validate(
+                load.Document.Snapshot,
+                FoundationSessionFixture.CreateSystems(),
+                FoundationSessionFixture.CreateCommandProcessorRegistry());
+            compatible = compatibility.Success;
+            issues.AddRange(compatibility.Issues.Select(static issue => new WorldPackageIssue(
+                issue.Code.ToString(), issue.Summary, issue.Detail)));
+        }
+        WorldPackageVerificationReport report = new(
+            load.Success && compatible,
+            TryFullPath(input),
+            load.Document?.Manifest.PackageIdentityDigest.ToString() ?? string.Empty,
+            load.Document?.Manifest.Digest.ToString() ?? string.Empty,
+            load.Document?.Snapshot.Digest.ToString() ?? string.Empty,
+            load.Document?.Snapshot.StateDigest.ToString() ?? string.Empty,
+            issues.AsReadOnly());
+        return WriteReport(report, jsonPath, output, report.Success);
+    }
+
     private static int Ruleset(string[] args, TextWriter output, TextWriter error)
     {
         if (args.Length is not (4 or 6) || args[1] != "validate" || args[2] != "--directory" || string.IsNullOrWhiteSpace(args[3])
@@ -146,6 +200,12 @@ public static class CliApplication
         return success ? 0 : 1;
     }
 
+    private static string TryFullPath(string path)
+    {
+        try { return Path.GetFullPath(path); }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException) { return path; }
+    }
+
     private static bool TryJsonPath(string[] args, out string? path, out string? message)
     {
         path = null;
@@ -180,8 +240,9 @@ public static class CliApplication
     private static void WriteHelp(TextWriter writer)
     {
         writer.WriteLine("Project Emergence foundation CLI");
-        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test|rng-self-test|session-self-test> [--json <path>]");
+        writer.WriteLine("Usage: emergence <version|doctor|self-test|domain-self-test|rng-self-test|session-self-test|persistence-self-test> [--json <path>]");
         writer.WriteLine("       emergence ruleset validate --directory <path> [--json <path>]");
+        writer.WriteLine("       emergence world-package <verify|recover|fixture> <path> [--json <path>]");
     }
 }
 
@@ -198,3 +259,12 @@ public sealed record RulesetValidationReport(
     [property: JsonPropertyOrder(9)] string RegistryDigest,
     [property: JsonPropertyOrder(10)] IReadOnlyList<RulesetLoadIssue> Issues,
     [property: JsonPropertyOrder(11)] IReadOnlyList<DiagnosticCheck> Checks);
+
+public sealed record WorldPackageVerificationReport(
+    [property: JsonPropertyOrder(0)] bool Success,
+    [property: JsonPropertyOrder(1)] string PackagePath,
+    [property: JsonPropertyOrder(2)] string PackageIdentityDigest,
+    [property: JsonPropertyOrder(3)] string ManifestDigest,
+    [property: JsonPropertyOrder(4)] string SnapshotDigest,
+    [property: JsonPropertyOrder(5)] string StateDigest,
+    [property: JsonPropertyOrder(6)] IReadOnlyList<WorldPackageIssue> Issues);

@@ -7,7 +7,9 @@ public static class ManifestIntegrityValidator
     public static VerificationResult Validate(string reviewRoot, ReviewManifest manifest)
     {
         List<string> errors = [];
-        if (manifest.SchemaVersion != 5 || string.IsNullOrWhiteSpace(manifest.Project) || manifest.Phase != Phase04EvidenceValidator.CorrectionPhase)
+        bool supportedHeader = (manifest.SchemaVersion == 5 && manifest.Phase == Phase04EvidenceValidator.CorrectionPhase)
+            || (manifest.SchemaVersion == 6 && manifest.Phase == Phase05EvidenceValidator.Phase);
+        if (!supportedHeader || string.IsNullOrWhiteSpace(manifest.Project))
         {
             errors.Add("Manifest schema header is invalid.");
         }
@@ -133,21 +135,23 @@ public static class ReviewPackVerifier
         string reviewRoot = Path.GetDirectoryName(fullManifest)!;
         VerificationResult integrity = ManifestIntegrityValidator.Validate(reviewRoot, manifest);
         List<string> errors = [.. integrity.Errors];
+        if (manifest.SchemaVersion != 6 || manifest.Phase != Phase05EvidenceValidator.Phase)
+            errors.Add("The review pack is not a Phase 0.5 schema-6 pack.");
         ValidateRequiredDocuments(reviewRoot, errors);
         ValidateDesignDigest(reviewRoot, manifest, errors);
         ValidateSourceListing(reviewRoot, errors);
         ValidatePreflight(reviewRoot, manifest, errors);
-        ValidateCorrectionMetadata(reviewRoot, manifest, errors);
+        ValidateFeatureMetadata(reviewRoot, manifest, errors);
         ValidateTests(reviewRoot, manifest, errors);
 
-        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
         if (!BuildEvidenceValidator.IsPassed(build) || !BuildEvidenceValidator.IsPassed(manifest.Build))
         {
             errors.Add("Build evidence is not passed with zero warnings and errors.");
         }
         if (!Equivalent(build, manifest.Build)) errors.Add("Manifest build outcomes disagree with current build evidence.");
 
-        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
         if (!CliEvidenceValidator.IsPassed(cli) || !CliEvidenceValidator.IsPassed(manifest.Cli))
         {
             errors.Add("CLI version, doctor, Phase 0.1/0.2 self-tests, RNG self-test, ruleset validation, or session self-test evidence is not passed.");
@@ -157,10 +161,12 @@ public static class ReviewPackVerifier
         (RngEvidence rng, RulesetEvidence rulesets) = Phase03EvidenceValidator.Evaluate(reviewRoot);
         if (rng.Status != EvidenceStatus.Passed || manifest.Rng?.Status != EvidenceStatus.Passed || !Equivalent(rng, manifest.Rng)) errors.Add($"RNG evidence is not passed or disagrees with the manifest: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed || manifest.Rulesets?.Status != EvidenceStatus.Passed || !Equivalent(rulesets, manifest.Rulesets)) errors.Add($"Ruleset evidence is not passed or disagrees with the manifest: {rulesets.Detail}");
-        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit);
-        if (session.Status != EvidenceStatus.Passed || manifest.Session?.Status != EvidenceStatus.Passed || !Equivalent(session, manifest.Session)) errors.Add($"Phase 0.4R session evidence is not passed or disagrees with the manifest: {session.Detail}");
+        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", requirePresentation: false);
+        if (session.Status != EvidenceStatus.Passed || manifest.Session?.Status != EvidenceStatus.Passed || !Equivalent(session, manifest.Session)) errors.Add($"Phase 0.4R regression evidence is not passed or disagrees with the manifest: {session.Detail}");
+        PersistenceEvidence persistence = Phase05EvidenceValidator.Evaluate(reviewRoot);
+        if (persistence.Status != EvidenceStatus.Passed || manifest.Persistence?.Status != EvidenceStatus.Passed || !Equivalent(persistence, manifest.Persistence)) errors.Add($"Phase 0.5 persistence evidence is not passed or disagrees with the manifest: {persistence.Detail}");
 
-        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion);
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5");
         if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
         {
             errors.Add($"App evidence is not passed: {app.Detail}");
@@ -170,7 +176,7 @@ public static class ReviewPackVerifier
             errors.Add("Manifest App outcome disagrees with current App evidence.");
         }
 
-        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0");
+        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", "0.5.0-dev", Phase05EvidenceValidator.Phase);
         if (package.Status != EvidenceStatus.Passed || manifest.Package.Status != EvidenceStatus.Passed)
         {
             errors.Add($"Package evidence is not passed: {package.Detail}");
@@ -199,29 +205,30 @@ public static class ReviewPackVerifier
         };
     }
 
-    private static void ValidateCorrectionMetadata(string reviewRoot, ReviewManifest manifest, List<string> errors)
+    private static void ValidateFeatureMetadata(string reviewRoot, ReviewManifest manifest, List<string> errors)
     {
+        const string parent = "edb6f24898453841a4ecf3283bdd114ccebc2167";
+        const string correction = "b2c6e61b2daac16e2ba0555d5f59c7d440c09cad";
         const string originalCommit = "903e15ca60b9d7ba2513ace3468cd7691ec2d660";
-        const string acceptedMain = "5f21fc17abcc35843da09efa33a0c7c8abdd7d72";
-        string path = Path.Combine(reviewRoot, "git", "correction-metadata.json");
+        string path = Path.Combine(reviewRoot, "git", "feature-metadata.json");
         try
         {
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
             Dictionary<string, string> values = document.RootElement.EnumerateObject()
                 .ToDictionary(property => property.Name, property => property.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
-            string[] required = ["branch", "correctionCommit", "correctionSubject", "correctionParent", "originalPhase04Commit", "originalPhase04Subject", "acceptedMainCommit"];
-            if (!values.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(required)) errors.Add("Correction commit metadata has missing or unexpected fields.");
-            if (!values.TryGetValue("branch", out string? branch) || branch != "milestone-0-phase-0.4" || branch != manifest.GitBranch) errors.Add("Correction commit metadata has the wrong branch.");
-            if (!values.TryGetValue("correctionCommit", out string? correction) || !correction.Equals(manifest.GitCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Correction commit metadata does not identify the reviewed commit.");
-            if (!values.TryGetValue("correctionSubject", out string? correctionSubject) || correctionSubject != "M0 P0.4R harden scheduler transaction boundaries") errors.Add("Correction commit subject is wrong.");
-            if (!values.TryGetValue("correctionParent", out string? correctionParent) || !correctionParent.Equals(originalCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Correction commit is not directly based on the reviewed Phase 0.4 commit.");
+            string[] required = ["branch", "featureCommit", "featureSubject", "featureParent", "acceptedMainCommit", "acceptedCorrectionCommit", "originalPhase04Commit"];
+            if (!values.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(required)) errors.Add("Feature commit metadata has missing or unexpected fields.");
+            if (!values.TryGetValue("branch", out string? branch) || branch != "milestone-0-phase-0.5" || branch != manifest.GitBranch) errors.Add("Feature commit metadata has the wrong branch.");
+            if (!values.TryGetValue("featureCommit", out string? feature) || !feature.Equals(manifest.GitCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Feature metadata does not identify the reviewed commit.");
+            if (!values.TryGetValue("featureSubject", out string? subject) || subject != "M0 P0.5 coherent snapshots and atomic save load") errors.Add("Feature commit subject is wrong.");
+            if (!values.TryGetValue("featureParent", out string? featureParent) || !featureParent.Equals(parent, StringComparison.OrdinalIgnoreCase)) errors.Add("Feature commit is not directly based on accepted main.");
+            if (!values.TryGetValue("acceptedMainCommit", out string? main) || !main.Equals(parent, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted main commit metadata is wrong.");
+            if (!values.TryGetValue("acceptedCorrectionCommit", out string? acceptedCorrection) || !acceptedCorrection.Equals(correction, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted correction commit metadata is wrong.");
             if (!values.TryGetValue("originalPhase04Commit", out string? original) || !original.Equals(originalCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Original Phase 0.4 commit metadata is wrong.");
-            if (!values.TryGetValue("originalPhase04Subject", out string? originalSubject) || originalSubject != "M0 P0.4 world session and deterministic scheduler") errors.Add("Original Phase 0.4 commit subject is wrong.");
-            if (!values.TryGetValue("acceptedMainCommit", out string? main) || !main.Equals(acceptedMain, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted main commit metadata is wrong.");
         }
         catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
         {
-            errors.Add($"Correction commit metadata is invalid: {exception.Message}");
+            errors.Add($"Feature commit metadata is invalid: {exception.Message}");
         }
     }
 
@@ -365,6 +372,7 @@ public static class ReviewPackVerifier
             "docs/phase-0.2-traceability.md",
             "docs/phase-0.3-traceability.md",
             "docs/phase-0.4-traceability.md",
+            "docs/phase-0.5-traceability.md",
             "docs/design/README.md",
         ];
         foreach (string relative in required)
@@ -456,6 +464,20 @@ public static class ReviewPackVerifier
         && left.AcceptedCommandCount == right.AcceptedCommandCount && left.CommittedEventCount == right.CommittedEventCount
         && left.EventIds.SequenceEqual(right.EventIds, StringComparer.Ordinal)
         && left.PresentationSnapshotValid == right.PresentationSnapshotValid && left.AppSessionStatus == right.AppSessionStatus
+        && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
+
+    private static bool Equivalent(PersistenceEvidence left, PersistenceEvidence? right) => right is not null
+        && left.Status == right.Status && left.AlgorithmCatalogDigest == right.AlgorithmCatalogDigest
+        && left.CommandProcessorCatalogDigest == right.CommandProcessorCatalogDigest && left.DefinitionDigest == right.DefinitionDigest
+        && left.PreSaveStateDigest == right.PreSaveStateDigest && left.SnapshotDigest == right.SnapshotDigest
+        && left.PackageIdentityDigest == right.PackageIdentityDigest && left.ManifestDigest == right.ManifestDigest
+        && left.PackageBytes == right.PackageBytes && left.PackageEntryCount == right.PackageEntryCount
+        && left.LoadedStateDigest == right.LoadedStateDigest && left.RngContinuationMatched == right.RngContinuationMatched
+        && left.NextCommandSequence == right.NextCommandSequence
+        && left.ContinuationEventIds.SequenceEqual(right.ContinuationEventIds, StringComparer.Ordinal)
+        && left.FinalStateDigest == right.FinalStateDigest && left.PersistenceTraceDigest == right.PersistenceTraceDigest
+        && left.RecoveryScenarioCount == right.RecoveryScenarioCount && left.RecoveryScenarioPassed == right.RecoveryScenarioPassed
+        && left.AppRoundTripValid == right.AppRoundTripValid && left.PackagedRoundTripValid == right.PackagedRoundTripValid
         && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
 }
 

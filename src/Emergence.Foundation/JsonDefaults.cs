@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Emergence.Foundation.Text;
 
 namespace Emergence.Foundation;
 
@@ -17,7 +18,7 @@ public static class JsonDefaults
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         string fullPath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        File.WriteAllText(fullPath, Serialize(value) + Environment.NewLine, new System.Text.UTF8Encoding(false));
+        File.WriteAllBytes(fullPath, StrictUtf8.GetBytes(Serialize(value) + Environment.NewLine));
     }
 
     private static JsonSerializerOptions Create(bool indented)

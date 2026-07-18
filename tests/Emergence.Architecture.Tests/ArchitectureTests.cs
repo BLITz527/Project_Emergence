@@ -66,7 +66,7 @@ public sealed class ArchitectureTests
             ["Emergence.Simulation"] = ["Emergence.Foundation", "Emergence.Model", "Emergence.Presentation.Contracts"],
             ["Emergence.Analytics"] = ["Emergence.Foundation", "Emergence.Model"],
             ["Emergence.History"] = ["Emergence.Foundation", "Emergence.Model"],
-            ["Emergence.Persistence"] = ["Emergence.Foundation"],
+            ["Emergence.Persistence"] = ["Emergence.Foundation", "Emergence.Model"],
             ["Emergence.Presentation.Contracts"] = ["Emergence.Foundation", "Emergence.Model"],
             ["Emergence.Cli"] = ["Emergence.Foundation", "Emergence.Model", "Emergence.Simulation", "Emergence.Persistence", "Emergence.Presentation.Contracts"],
             ["Emergence.App"] = ["Emergence.Foundation", "Emergence.Model", "Emergence.Simulation", "Emergence.Persistence", "Emergence.Presentation.Contracts"],
@@ -246,16 +246,55 @@ public sealed class ArchitectureTests
     }
 
     [Fact]
-    public void Phase04IntroducesNoSaveFormatOrBiologicalNamespace()
+    public void Phase05PersistenceBoundariesAndBiologyExclusionsAreEnforced()
     {
         string[] sourceFiles = new[] { "src/Emergence.Model", "src/Emergence.Simulation", "src/Emergence.Presentation.Contracts" }
             .SelectMany(directory => Directory.GetFiles(At(directory), "*.cs", SearchOption.AllDirectories)).ToArray();
-        Assert.DoesNotContain(sourceFiles, path => path.Contains("Persistence", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(sourceFiles, path => path.Contains("Biology", StringComparison.OrdinalIgnoreCase));
         string source = string.Join("\n", sourceFiles.Select(File.ReadAllText));
-        Assert.DoesNotContain("SaveAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain("LoadWorld", source, StringComparison.Ordinal);
         Assert.DoesNotContain("namespace Emergence.Biology", source, StringComparison.Ordinal);
+        Assert.Contains("class WorldSessionSnapshot", source, StringComparison.Ordinal);
+
+        string persistenceProject = File.ReadAllText(At("src/Emergence.Persistence/Emergence.Persistence.csproj"));
+        Assert.DoesNotContain("Emergence.Simulation", persistenceProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("Emergence.App", persistenceProject, StringComparison.Ordinal);
+        Assert.DoesNotContain("Godot", persistenceProject, StringComparison.Ordinal);
+        string simulationProject = File.ReadAllText(At("src/Emergence.Simulation/Emergence.Simulation.csproj"));
+        Assert.DoesNotContain("Emergence.Persistence", simulationProject, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PersistenceUsesNoUnsafeDeserializationExecutableMetadataOrAuthoritativeClockIdentity()
+    {
+        string source = string.Join("\n", Directory.GetFiles(At("src/Emergence.Persistence"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
+        string[] prohibited =
+        [
+            "BinaryFormatter", "NetDataContractSerializer", "LosFormatter", "FormatterServices", "GetUninitializedObject",
+            "Assembly.Load", "Activator.CreateInstance", "TypeNameHandling", "JsonExtensionData", "Guid.NewGuid",
+            "DateTime.Now", "DateTime.UtcNow", "Random.Shared", "System.Random", "DllImport", "unsafe {",
+        ];
+        Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
+        Assert.DoesNotContain("eventHistory", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("automatic migration", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WorldPackageContractsExposeNoMutableByteArraysStreamsOrExecutableProcessors()
+    {
+        Type[] publicTypes = typeof(Emergence.Persistence.WorldPackages.WorldPackageDocument).Assembly.GetExportedTypes()
+            .Where(type => type.Namespace == "Emergence.Persistence.WorldPackages")
+            .ToArray();
+        foreach (Type type in publicTypes)
+        {
+            foreach (System.Reflection.PropertyInfo property in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                Assert.NotEqual(typeof(byte[]), property.PropertyType);
+                Assert.False(typeof(Stream).IsAssignableFrom(property.PropertyType));
+                Assert.DoesNotContain("ISimulationSystem", property.PropertyType.FullName ?? string.Empty, StringComparison.Ordinal);
+                Assert.DoesNotContain("ISessionCommandProcessor", property.PropertyType.FullName ?? string.Empty, StringComparison.Ordinal);
+            }
+        }
     }
 
     private static IEnumerable<string> ProjectReferences(string relativeProject)

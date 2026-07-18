@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -62,9 +64,9 @@ public static class ReviewPackApplication
         }
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.4R_{timestamp}");
+        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.5_{timestamp}");
         Directory.CreateDirectory(reviewRoot);
-        foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "app", "package", "docs" })
+        foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "persistence", "app", "package", "docs" })
         {
             Directory.CreateDirectory(Path.Combine(reviewRoot, directory));
         }
@@ -74,17 +76,17 @@ public static class ReviewPackApplication
         Write(Path.Combine(reviewRoot, "git", "status.txt"), status.Output);
         Write(Path.Combine(reviewRoot, "git", "log.txt"), RunGit(repositoryRoot, "log", "--decorate", "--oneline", "-20").Output);
         Write(Path.Combine(reviewRoot, "git", "diff-stat.txt"), RunGit(repositoryRoot, "diff", "--stat", "HEAD").Output);
-        Dictionary<string, string> correctionMetadata = new(StringComparer.Ordinal)
+        Dictionary<string, string> featureMetadata = new(StringComparer.Ordinal)
         {
             ["branch"] = OneLine(branch.Output),
-            ["correctionCommit"] = OneLine(head.Output),
-            ["correctionSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
-            ["correctionParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
-            ["originalPhase04Commit"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
-            ["originalPhase04Subject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD^").Output),
-            ["acceptedMainCommit"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^^").Output),
+            ["featureCommit"] = OneLine(head.Output),
+            ["featureSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
+            ["featureParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
+            ["acceptedMainCommit"] = "edb6f24898453841a4ecf3283bdd114ccebc2167",
+            ["acceptedCorrectionCommit"] = "b2c6e61b2daac16e2ba0555d5f59c7d440c09cad",
+            ["originalPhase04Commit"] = "903e15ca60b9d7ba2513ace3468cd7691ec2d660",
         };
-        Write(Path.Combine(reviewRoot, "git", "correction-metadata.json"), JsonSerializer.Serialize(correctionMetadata, new JsonSerializerOptions { WriteIndented = true }));
+        Write(Path.Combine(reviewRoot, "git", "feature-metadata.json"), JsonSerializer.Serialize(featureMetadata, new JsonSerializerOptions { WriteIndented = true }));
 
         GitResult sourceList = RunGit(repositoryRoot, "ls-tree", "-r", "--name-only", "HEAD");
         if (sourceList.ExitCode != 0)
@@ -111,16 +113,18 @@ public static class ReviewPackApplication
         }
 
         CopyEvidence(repositoryRoot, reviewRoot);
+        ExtractPersistenceEvidence(reviewRoot);
         CopyReviewDocuments(repositoryRoot, reviewRoot);
         (string godotVersion, string godotPath, bool templates) = ReadPreflight(reviewRoot);
         string gitCommit = OneLine(head.Output);
         IReadOnlyList<TestEvidence> tests = ReadTests(reviewRoot);
-        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion);
-        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0");
-        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
-        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.4.0-dev", ".NETCoreApp,Version=v10.0");
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5");
+        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", "0.5.0-dev", Phase05EvidenceValidator.Phase);
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
         (RngEvidence rng, RulesetEvidence rulesets) = Phase03EvidenceValidator.Evaluate(reviewRoot);
-        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, gitCommit);
+        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", requirePresentation: false);
+        PersistenceEvidence persistence = Phase05EvidenceValidator.Evaluate(reviewRoot);
         string designDigest = ReadDesignDigest(repositoryRoot);
         string sourceDigest = EvidencePaths.DigestTree(Path.Combine(reviewRoot, "source"));
         List<string> warnings = [];
@@ -144,16 +148,17 @@ public static class ReviewPackApplication
         if (!CliEvidenceValidator.IsPassed(cli)) warnings.Add("Required CLI evidence is not passed.");
         if (rng.Status != EvidenceStatus.Passed) warnings.Add($"Required RNG evidence is not passed: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed) warnings.Add($"Required ruleset evidence is not passed: {rulesets.Detail}");
-        if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4R session evidence is not passed: {session.Detail}");
+        if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4R regression evidence is not passed: {session.Detail}");
+        if (persistence.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.5 persistence evidence is not passed: {persistence.Detail}");
         if (string.IsNullOrWhiteSpace(designDigest))
         {
             warnings.Add("Imported design digest is missing.");
         }
 
         ReviewManifest seed = new(
-            5,
+            6,
             "Project Emergence",
-            Phase04EvidenceValidator.CorrectionPhase,
+            Phase05EvidenceValidator.Phase,
             DateTime.UtcNow,
             repositoryRoot,
             reviewRoot,
@@ -176,10 +181,11 @@ public static class ReviewPackApplication
             warnings,
             rng,
             rulesets,
-            session);
+            session,
+            persistence);
 
         Write(Path.Combine(reviewRoot, "README_REVIEW.md"), BuildReadme(seed));
-        (IReadOnlyList<string> created, IReadOnlyList<string> modified) = CorrectionFiles(repositoryRoot);
+        (IReadOnlyList<string> created, IReadOnlyList<string> modified) = FeatureFiles(repositoryRoot);
         int anticipatedManifestFileCount = Directory.EnumerateFiles(reviewRoot, "*", SearchOption.AllDirectories).Count() + 1;
         Write(Path.Combine(reviewRoot, "IMPLEMENTATION_REPORT.md"), ImplementationReportBuilder.Build(seed, reviewRoot, created, modified, anticipatedManifestFileCount));
 
@@ -238,6 +244,33 @@ public static class ReviewPackApplication
         }
     }
 
+    private static void ExtractPersistenceEvidence(string reviewRoot)
+    {
+        string packagePath = Path.Combine(reviewRoot, "cli", "foundation-session.emergence-world");
+        if (!File.Exists(packagePath)) return;
+        string destination = Path.Combine(reviewRoot, "persistence");
+        Directory.CreateDirectory(destination);
+        List<object> inventory = [];
+        using FileStream stream = new(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using ZipArchive archive = new(stream, ZipArchiveMode.Read, false, Encoding.UTF8);
+        foreach (ZipArchiveEntry entry in archive.Entries)
+        {
+            if (entry.FullName is not ("definition.json" or "snapshot.json" or "package-manifest.json")) continue;
+            using Stream input = entry.Open();
+            using MemoryStream bytes = new();
+            input.CopyTo(bytes);
+            byte[] content = bytes.ToArray();
+            File.WriteAllBytes(Path.Combine(destination, entry.FullName), content);
+            inventory.Add(new
+            {
+                path = entry.FullName,
+                length = content.LongLength,
+                sha256 = Convert.ToHexStringLower(SHA256.HashData(content)),
+            });
+        }
+        Write(Path.Combine(destination, "package-inventory.json"), JsonSerializer.Serialize(inventory, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
     private static void CopyReviewDocuments(string repositoryRoot, string reviewRoot)
     {
         foreach (string directory in new[] { "architecture", "roadmap", "development", "design" })
@@ -246,7 +279,7 @@ public static class ReviewPackApplication
                 Path.Combine(repositoryRoot, "docs", directory),
                 Path.Combine(reviewRoot, "docs", directory));
         }
-        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md", "phase-0.3-traceability.md", "phase-0.4-traceability.md" })
+        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md", "phase-0.3-traceability.md", "phase-0.4-traceability.md", "phase-0.5-traceability.md" })
         {
             string source = Path.Combine(repositoryRoot, "docs", file);
             string target = Path.Combine(reviewRoot, "docs", file);
@@ -313,11 +346,11 @@ public static class ReviewPackApplication
     }
 
     private static string BuildReadme(ReviewManifest manifest) =>
-        $"# Project Emergence M0 Phase 0.4R Review Pack\n\n" +
+        $"# Project Emergence M0 Phase 0.5 Review Pack\n\n" +
         $"Created UTC: {manifest.CreatedUtc:O}\n\n" +
         $"Reviewed commit: `{manifest.GitCommit}` on `{manifest.GitBranch}`; clean={manifest.GitClean}.\n\n" +
         $"Design archive SHA-256: `{manifest.DesignArchiveDigest}`.\n\n" +
-        "This self-contained directory contains the exact reviewed source snapshot, normalized single-run tests and coverage, build/CLI/App/package evidence, required documentation, a structured manifest, and a complete implementation report. Successful creation requires hardened exact-file and semantic verification.\n";
+        "This self-contained directory contains the exact reviewed source snapshot, normalized single-run tests and coverage, build/CLI/App/package evidence, an independently validated world-package fixture and extracted semantic documents, required documentation, a structured manifest, and a complete implementation report. Successful creation requires hardened exact-file and semantic verification.\n";
 
     private static int WriteAssemblyInventory(string repositoryRoot, string outputPath, TextWriter output, TextWriter error)
     {
@@ -374,7 +407,7 @@ public static class ReviewPackApplication
         public void Dispose() => Unload();
     }
 
-    private static (IReadOnlyList<string> Created, IReadOnlyList<string> Modified) CorrectionFiles(string repositoryRoot)
+    private static (IReadOnlyList<string> Created, IReadOnlyList<string> Modified) FeatureFiles(string repositoryRoot)
     {
         GitResult result = RunGit(repositoryRoot, "diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD");
         List<string> created = [];

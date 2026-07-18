@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using Emergence.Foundation.Text;
 
 namespace Emergence.Foundation.Hashing;
 
@@ -18,7 +19,7 @@ public sealed class CanonicalHashWriter : IDisposable
     public void WriteString(string value)
     {
         ArgumentNullException.ThrowIfNull(value); EnsureWritable();
-        byte[] bytes = Encoding.UTF8.GetBytes(value); WriteLengthPrefixed(0x01, bytes);
+        byte[] bytes = StrictUtf8.GetBytes(value); WriteLengthPrefixed(0x01, bytes);
     }
     public void WriteBytes(ReadOnlySpan<byte> value) { EnsureWritable(); WriteLengthPrefixed(0x02, value); }
     public void WriteUInt64(ulong value)

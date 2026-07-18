@@ -110,6 +110,31 @@ public sealed record SessionEvidence(
     IReadOnlyList<string> EvidencePaths,
     string Detail);
 
+public sealed record PersistenceEvidence(
+    string Command,
+    EvidenceStatus Status,
+    string AlgorithmCatalogDigest,
+    string CommandProcessorCatalogDigest,
+    string DefinitionDigest,
+    string PreSaveStateDigest,
+    string SnapshotDigest,
+    string PackageIdentityDigest,
+    string ManifestDigest,
+    long PackageBytes,
+    int PackageEntryCount,
+    string LoadedStateDigest,
+    bool RngContinuationMatched,
+    string NextCommandSequence,
+    IReadOnlyList<string> ContinuationEventIds,
+    string FinalStateDigest,
+    string PersistenceTraceDigest,
+    int RecoveryScenarioCount,
+    int RecoveryScenarioPassed,
+    bool AppRoundTripValid,
+    bool PackagedRoundTripValid,
+    IReadOnlyList<string> EvidencePaths,
+    string Detail);
+
 public sealed record RngEvidence(
     string Command,
     EvidenceStatus Status,
@@ -169,7 +194,8 @@ public sealed record ReviewManifest(
     IReadOnlyList<string> Warnings,
     RngEvidence? Rng = null,
     RulesetEvidence? Rulesets = null,
-    SessionEvidence? Session = null);
+    SessionEvidence? Session = null,
+    PersistenceEvidence? Persistence = null);
 
 public sealed record VerificationResult(
     bool Success,

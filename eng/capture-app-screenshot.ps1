@@ -15,7 +15,7 @@ if (-not $godot) { throw 'Godot 4.7 stable .NET executable was not found.' }
 $gui = $godot -replace '_console\.exe$', '.exe'
 if (-not (Test-Path -LiteralPath $gui -PathType Leaf)) { $gui = $godot }
 $project = Join-Path $root 'src\Emergence.App'
-$process = Start-Process -FilePath $gui -ArgumentList @('--path', $project) -WorkingDirectory $project -PassThru
+$process = Start-Process -FilePath $gui -ArgumentList @('--path', $project, '--', '--save-load-qa') -WorkingDirectory $project -PassThru
 
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -52,7 +52,7 @@ public static class EmergenceWindowCapture {
         $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
     } finally { $bitmap.Dispose() }
 
-    'PASSED: normal FOUNDATION / M0.4R shell launched with Paused tick 0 and no biological state, rendered, was captured fresh, and closed cleanly.' |
+    'PASSED: normal FOUNDATION / M0.5 shell launched, saved and verified a coherent Paused tick 0 session, loaded it with no biological state, rendered, was captured fresh, and closed cleanly.' |
         Out-File -FilePath (Join-Path $output 'manual-launch-status.txt') -Encoding utf8
 } finally {
     if (-not $process.HasExited) {

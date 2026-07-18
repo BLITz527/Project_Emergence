@@ -10,4 +10,4 @@ Status: Accepted with Phase 0.4R hardening
 
 ## Consequences
 
-The session is authoritative in memory but is not a save file. Its bounded latest receipt is diagnostic/presentation state, not an unbounded history engine. Coherent snapshots, save/load, checksums, recovery, branching persistence, and complete session/RNG persistence belong to Phase 0.5 or later. No biological state is introduced.
+The session is authoritative in memory and is never serialized as a save object. Its bounded latest receipt is diagnostic/presentation state, not an unbounded history engine. Phase 0.5 layers a separate coherent snapshot and package contract over committed Paused/Faulted state; branching persistence and event-history replay remain later work. No biological state is introduced.

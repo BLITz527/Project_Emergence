@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Emergence.Foundation.Text;
 
 namespace Emergence.Foundation.Hashing;
 
@@ -21,7 +22,7 @@ public readonly struct Sha256Digest : IEquatable<Sha256Digest>, IComparable<Sha2
     }
 
     public static Sha256Digest Compute(ReadOnlySpan<byte> bytes) => new(SHA256.HashData(bytes));
-    public static Sha256Digest ComputeUtf8(string text) { ArgumentNullException.ThrowIfNull(text); return Compute(Encoding.UTF8.GetBytes(text)); }
+    public static Sha256Digest ComputeUtf8(string text) { ArgumentNullException.ThrowIfNull(text); return Compute(StrictUtf8.GetBytes(text)); }
     public static Sha256Digest Parse(string text)
     {
         ArgumentNullException.ThrowIfNull(text);

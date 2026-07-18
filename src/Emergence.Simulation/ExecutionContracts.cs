@@ -100,9 +100,11 @@ public sealed class CommandProcessorRegistry
         if (sorted.Select(static item => item.CommandType).Distinct().Count() != sorted.Length) throw new ArgumentException("Duplicate command processor types are not allowed.", nameof(processors));
         _processors = Array.AsReadOnly(sorted);
         _byType = sorted.ToDictionary(static item => item.CommandType);
+        Catalog = new CommandProcessorCatalog(sorted.Select(static item => item.CommandType));
     }
 
     public IReadOnlyList<ISessionCommandProcessor> Processors => _processors;
+    public CommandProcessorCatalog Catalog { get; }
     public bool Contains(SessionCommandTypeId type) => type.IsValid && _byType.ContainsKey(type);
     public bool TryGet(SessionCommandTypeId type, out ISessionCommandProcessor? processor) => _byType.TryGetValue(type, out processor);
 }

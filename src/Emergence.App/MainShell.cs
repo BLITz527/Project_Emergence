@@ -1,9 +1,11 @@
 using System.Runtime.InteropServices;
 using Emergence.Foundation;
 using Emergence.Foundation.Randomness;
+using Emergence.Foundation.Results;
 using Emergence.Foundation.Versioning;
 using Emergence.Model;
 using Emergence.Persistence.Rulesets;
+using Emergence.Persistence.WorldPackages;
 using Emergence.Presentation.Contracts;
 using Emergence.Simulation;
 using Godot;
@@ -16,6 +18,8 @@ public partial class MainShell : Control
     private RichTextLabel? _diagnostics;
     private WorldSession? _session;
     private SessionPresentationSnapshot? _snapshot;
+    private Label? _packageStatus;
+    private string _savePath = string.Empty;
 
     public override void _Ready()
     {
@@ -26,6 +30,12 @@ public partial class MainShell : Control
         }
 
         BuildShell();
+        if (arguments.Contains("--save-load-qa", StringComparer.Ordinal))
+        {
+            SaveSession();
+            VerifySave();
+            LoadSession();
+        }
     }
 
     private bool TryRunCommandLineMode(string[] arguments)
@@ -74,28 +84,30 @@ public partial class MainShell : Control
         margin.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         margin.AddThemeConstantOverride("margin_left", 56);
         margin.AddThemeConstantOverride("margin_right", 56);
-        margin.AddThemeConstantOverride("margin_top", 48);
-        margin.AddThemeConstantOverride("margin_bottom", 48);
+        margin.AddThemeConstantOverride("margin_top", 24);
+        margin.AddThemeConstantOverride("margin_bottom", 24);
         AddChild(margin);
 
         VBoxContainer layout = new();
-        layout.AddThemeConstantOverride("separation", 14);
+        layout.AddThemeConstantOverride("separation", 9);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.4R", 14, accent);
+        Label eyebrow = Label("FOUNDATION / M0.5", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
-        Label subtitle = Label("Milestone 0 — World Session and Deterministic Scheduler", 20, muted);
+        Label subtitle = Label("Milestone 0 — Coherent Snapshots and Save/Load", 20, muted);
         layout.AddChild(subtitle);
 
         HSeparator separator = new();
-        separator.CustomMinimumSize = new Vector2(0, 22);
+        separator.CustomMinimumSize = new Vector2(0, 14);
         layout.AddChild(separator);
 
         BuildDetails build = BuildInfo.Current;
         RulesetDirectoryLoadResult rulesets = LoadRulesets();
         bool sessionReady = TryCreateSessionSnapshot(rulesets, out _session, out _snapshot, out string sessionDetail);
+        _savePath = ProjectSettings.GlobalizePath("user://saves/foundation-session.emergence-world");
+        Directory.CreateDirectory(Path.GetDirectoryName(_savePath)!);
         GridContainer facts = new() { Columns = 2 };
         facts.AddThemeConstantOverride("h_separation", 32);
         facts.AddThemeConstantOverride("v_separation", 8);
@@ -106,17 +118,22 @@ public partial class MainShell : Control
         AddFact(facts, "SESSION", sessionReady ? $"{_snapshot!.Status} · tick {_snapshot.Tick}" : sessionDetail, muted, sessionReady ? accent : new Color("e06c75"));
         AddFact(facts, "STATE", sessionReady ? $"{_snapshot!.StateDigest.ToString()[..12]}… · no biological state" : "unavailable", muted, sessionReady ? accent : new Color("e06c75"));
         AddFact(facts, "STATUS", sessionReady ? "Paused — logical time is not advancing" : "session validation failed", muted, sessionReady ? accent : new Color("e06c75"));
+        AddFact(facts, "SAVE", "user://saves/foundation-session.emergence-world", muted, primary);
         layout.AddChild(facts);
 
         _statusLabel = Label("Nonbiological foundation only: no cells, fields, regions, or biological world state exist.", 15, muted);
-        _statusLabel.CustomMinimumSize = new Vector2(0, 44);
+        _statusLabel.CustomMinimumSize = new Vector2(0, 32);
         layout.AddChild(_statusLabel);
+
+        _packageStatus = Label("SAVE/LOAD  Ready — no background simulation while closed.", 14, accent);
+        _packageStatus.CustomMinimumSize = new Vector2(0, 24);
+        layout.AddChild(_packageStatus);
 
         _diagnostics = new RichTextLabel
         {
             FitContent = true,
             ScrollActive = true,
-            CustomMinimumSize = new Vector2(0, 170),
+            CustomMinimumSize = new Vector2(0, 70),
             BbcodeEnabled = true,
             Text = "[color=#8aa3ae]Diagnostics have not been run.[/color]",
         };
@@ -127,10 +144,94 @@ public partial class MainShell : Control
         Button diagnosticsButton = new() { Text = "Run Diagnostics" };
         diagnosticsButton.Pressed += ShowDiagnostics;
         actions.AddChild(diagnosticsButton);
+        Button saveButton = new() { Text = "Save Session", Disabled = !sessionReady };
+        saveButton.Pressed += SaveSession;
+        actions.AddChild(saveButton);
+        Button loadButton = new() { Text = "Load Session" };
+        loadButton.Pressed += LoadSession;
+        actions.AddChild(loadButton);
+        Button verifyButton = new() { Text = "Verify Save" };
+        verifyButton.Pressed += VerifySave;
+        actions.AddChild(verifyButton);
         Button quitButton = new() { Text = "Quit" };
         quitButton.Pressed += () => GetTree().Quit();
         actions.AddChild(quitButton);
         layout.AddChild(actions);
+    }
+
+    private void SaveSession()
+    {
+        if (_session is null || _session.Status is not (WorldSessionStatus.Paused or WorldSessionStatus.Faulted))
+        {
+            SetPackageStatus("Save unavailable: session must be Paused or Faulted.", false);
+            return;
+        }
+        OperationResult<WorldSessionSnapshot> capture = _session.CaptureSnapshot();
+        if (!capture.Success)
+        {
+            SetPackageStatus("Save failed during coherent snapshot capture.", false, capture.Issues.Select(static issue => issue.Detail));
+            return;
+        }
+        WorldPackageSaveResult save = new WorldPackageWriter().Save(_savePath, capture.Value);
+        if (!save.Success)
+        {
+            SetPackageStatus("Save failed; the prior package remains authoritative or recoverable.", false, save.Issues.Select(static issue => issue.Detail));
+            return;
+        }
+        SetPackageStatus($"Save verified · state {capture.Value.StateDigest.ToString()[..12]}… · package {save.PackageIdentityDigest[..12]}…", true);
+    }
+
+    private void LoadSession()
+    {
+        WorldPackageLoadResult load = new WorldPackageReader().Load(_savePath);
+        if (!load.Success || load.Document is null)
+        {
+            SetPackageStatus("Load failed; the current session is unchanged.", false, load.Issues.Select(static issue => issue.Detail));
+            return;
+        }
+        CommandProcessorRegistry processors = FoundationSessionFixture.CreateCommandProcessorRegistry();
+        IReadOnlyList<ISimulationSystem> systems = FoundationSessionFixture.CreateSystems();
+        OperationResult compatibility = SessionCompatibilityValidator.Validate(load.Document.Snapshot, systems, processors);
+        if (!compatibility.Success)
+        {
+            SetPackageStatus("Load is incompatible; the current session is unchanged.", false, compatibility.Issues.Select(static issue => issue.Detail));
+            return;
+        }
+        OperationResult<WorldSession> restoration = WorldSession.Restore(load.Document.Snapshot, systems, processors);
+        if (!restoration.Success)
+        {
+            SetPackageStatus("Restore failed; the current session is unchanged.", false, restoration.Issues.Select(static issue => issue.Detail));
+            return;
+        }
+
+        WorldSession candidate = restoration.Value;
+        SessionPresentationSnapshot candidateSnapshot = new SessionPresentationSnapshotProducer().Create(candidate);
+        _session = candidate;
+        _snapshot = candidateSnapshot;
+        SetPackageStatus($"Loaded {candidate.Status} state · tick {candidate.CurrentTick} · {candidate.StateDigest.ToString()[..12]}…", true);
+    }
+
+    private void VerifySave()
+    {
+        WorldPackageLoadResult load = new WorldPackageReader().Load(_savePath);
+        if (!load.Success || load.Document is null)
+        {
+            SetPackageStatus("Save verification failed.", false, load.Issues.Select(static issue => issue.Detail));
+            return;
+        }
+        SetPackageStatus($"Save verified · state {load.Document.Snapshot.StateDigest.ToString()[..12]}… · no biological state", true);
+    }
+
+    private void SetPackageStatus(string message, bool success, IEnumerable<string>? details = null)
+    {
+        if (_packageStatus is not null)
+        {
+            _packageStatus.Text = "SAVE/LOAD  " + message;
+            _packageStatus.AddThemeColorOverride("font_color", success ? new Color("54d6b0") : new Color("e06c75"));
+        }
+        if (_statusLabel is not null) _statusLabel.Text = message;
+        if (_diagnostics is not null && details is not null)
+            _diagnostics.Text = string.Join("\n", details.Select(static detail => $"[color=#e06c75]Detail[/color]  {detail}"));
     }
 
     private void ShowDiagnostics()
@@ -149,8 +250,8 @@ public partial class MainShell : Control
         checks.Add(new DiagnosticCheck(
             "phase.identity",
             DiagnosticSeverity.Success,
-            "Correction evidence phase",
-            "M0 Phase 0.4R"));
+            "Persistence evidence phase",
+            "M0 Phase 0.5"));
         checks.Add(new DiagnosticCheck(
             "runtime.godot",
             DiagnosticSeverity.Success,
@@ -180,7 +281,7 @@ public partial class MainShell : Control
             string after = session.StateDigest.ToString();
             checks.Add(new DiagnosticCheck(
                 "session.definition",
-                session.Definition.Digest.ToString() == FoundationSessionFixture.ExpectedDefinitionDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                session.Definition.Digest.ToString() == FoundationSessionFixture.ExpectedPhase05DefinitionDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
                 "World-session definition",
                 session.Definition.Digest.ToString()));
             checks.Add(new DiagnosticCheck(
@@ -214,6 +315,7 @@ public partial class MainShell : Control
                 headless ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
                 "Core assemblies are Godot-free",
                 headless ? "Model and Simulation have no Godot reference." : "A core assembly references Godot."));
+            AddPersistenceDiagnostics(checks, session);
         }
         else
         {
@@ -221,6 +323,60 @@ public partial class MainShell : Control
         }
         return foundation with { Success = checks.All(check => check.Severity != DiagnosticSeverity.Failure), Checks = checks };
     }
+
+    private static void AddPersistenceDiagnostics(List<DiagnosticCheck> checks, WorldSession session)
+    {
+        string directory = ProjectSettings.GlobalizePath("user://diagnostics");
+        string packagePath = Path.Combine(directory, "app-doctor.emergence-world");
+        Directory.CreateDirectory(directory);
+        CleanupPackageArtifacts(packagePath);
+        bool success = false;
+        bool rngMatch = false;
+        bool sidecarsClean;
+        string detail;
+        try
+        {
+            OperationResult<WorldSessionSnapshot> capture = session.CaptureSnapshot();
+            if (!capture.Success) throw new InvalidOperationException("App doctor snapshot capture failed.");
+            RngSampleAddress address = new(new("foundation.self-test"), RngScopeKey.Parse(FoundationRngSelfTest.Scope), 42);
+            string before = new DeterministicAddressedRng(session.Definition.RootSeed, session.Definition.SelectedRuleset.RngDomains).GenerateBlock(address).ToString();
+            WorldPackageSaveResult save = new WorldPackageWriter().Save(packagePath, capture.Value);
+            if (!save.Success) throw new InvalidOperationException(save.Issues[0].Detail);
+            WorldPackageLoadResult load = new WorldPackageReader().Load(packagePath);
+            if (!load.Success || load.Document is null) throw new InvalidOperationException(load.Issues[0].Detail);
+            CommandProcessorRegistry processors = FoundationSessionFixture.CreateCommandProcessorRegistry();
+            OperationResult<WorldSession> restored = WorldSession.Restore(load.Document.Snapshot, FoundationSessionFixture.CreateSystems(), processors);
+            if (!restored.Success) throw new InvalidOperationException(restored.Issues[0].Detail);
+            string after = new DeterministicAddressedRng(restored.Value.Definition.RootSeed, restored.Value.Definition.SelectedRuleset.RngDomains).GenerateBlock(address).ToString();
+            rngMatch = before == after;
+            success = restored.Value.StateDigest == session.StateDigest && rngMatch && !load.Document.Snapshot.FaultIssues.Any();
+            detail = $"state={restored.Value.StateDigest};package={load.Document.Manifest.PackageIdentityDigest}";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            detail = $"{exception.GetType().Name}: {exception.Message}";
+        }
+        finally
+        {
+            CleanupPackageArtifacts(packagePath);
+            sidecarsClean = PackageArtifactPaths(packagePath).All(path => !File.Exists(path));
+        }
+        checks.Add(new DiagnosticCheck("persistence.round-trip", success ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App save/load round trip", detail));
+        checks.Add(new DiagnosticCheck("persistence.rng-continuation", rngMatch ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App addressed RNG continuation", rngMatch.ToString().ToLowerInvariant()));
+        checks.Add(new DiagnosticCheck("persistence.sidecars", sidecarsClean ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App temporary sidecar cleanup", sidecarsClean ? "none" : "sidecar remains"));
+    }
+
+    private static void CleanupPackageArtifacts(string target)
+    {
+        foreach (string path in PackageArtifactPaths(target))
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
+    private static IEnumerable<string> PackageArtifactPaths(string target) =>
+        [target, target + ".writing", target + ".previous", target + ".lock", target + ".corrupt"];
 
     private static RulesetDirectoryLoadResult LoadRulesets() => new RulesetDirectoryLoader().Load(ResolveRulesetDirectory());
 
@@ -251,7 +407,7 @@ public partial class MainShell : Control
         }
         try
         {
-            session = FoundationSessionFixture.CreatePausedSession(rulesets.Registry);
+            session = FoundationSessionFixture.CreatePhase05PausedSession(rulesets.Registry);
             snapshot = new SessionPresentationSnapshotProducer().Create(session);
             detail = "paused nonbiological session ready";
             return snapshot.Status == WorldSessionStatus.Paused && snapshot.Tick.Value == UInt128.Zero && !snapshot.HasBiologicalState;

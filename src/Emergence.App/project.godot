@@ -1,5 +1,5 @@
 ; Engine configuration file.
-; Project Emergence Phase 0.4R world-session and deterministic-scheduler shell.
+; Project Emergence Phase 0.5 coherent-snapshot and save/load shell.
 
 config_version=5
 
