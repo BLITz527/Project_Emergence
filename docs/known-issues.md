@@ -8,6 +8,7 @@
 - V1 session definitions remain a regression format. V2 is the first saveable format; no automatic or user-authored migration exists.
 - Save/load supports one foundation package path in the App. Autosave, multiple slots, world browsing, cloud sync, branching, and rollback are deferred.
 - Recovery is explicit and deterministic. When no valid candidate exists it preserves evidence and fails rather than guessing.
+- A regular `.lock` file may remain after an abrupt process or cleanup failure, but it is harmless rendezvous state: the next Save or Recover reacquires it once no live exclusive handle owns it. Lock metadata is diagnostic and is never trusted.
 - The package is a complete foundation-session snapshot, not the future large-world incremental/chunk persistence architecture.
-- No biological runtime or biological save payload exists in Phase 0.5.
+- No biological runtime or biological save payload exists in Phase 0.5R.
 - The authoritative Version 1.0 design archive remains immutable; its raw external ZIP stays ignored.

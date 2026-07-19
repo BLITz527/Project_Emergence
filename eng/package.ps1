@@ -55,7 +55,7 @@ if (Test-Path -LiteralPath $headFile) {
 try {
     $env:MSBUILDDISABLENODEREUSE = '1'
     $env:GitCommit = $gitCommit
-    Invoke-LoggedCommand (Join-Path $evidence 'export.log') { & $godot --headless --path (Join-Path $root 'src\Emergence.App') --export-release 'Windows Desktop x86_64' $executable }
+    Invoke-LoggedCommand (Join-Path $evidence 'export.log') { & $godot --headless --path (Join-Path $root 'src\Emergence.App') --export-release 'Windows Desktop x86_64' $executable --quit }
 } finally {
     if ($null -eq $previousNodeReuse) { Remove-Item Env:MSBUILDDISABLENODEREUSE -ErrorAction SilentlyContinue }
     else { $env:MSBUILDDISABLENODEREUSE = $previousNodeReuse }

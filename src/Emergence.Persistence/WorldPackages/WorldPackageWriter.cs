@@ -9,6 +9,7 @@ public sealed class WorldPackageWriter
     private readonly WorldPackageReader _reader = new();
     private readonly WorldPackageRecovery _recovery = new();
     private readonly Action<WorldPackageFaultPoint>? _faultInjector;
+    private readonly Func<WorldPackageIssue?>? _lockCleanupIssueInjector;
 
     public WorldPackageWriter()
     {
@@ -16,6 +17,14 @@ public sealed class WorldPackageWriter
 
     internal WorldPackageWriter(Action<WorldPackageFaultPoint> faultInjector) =>
         _faultInjector = faultInjector ?? throw new ArgumentNullException(nameof(faultInjector));
+
+    internal WorldPackageWriter(
+        Action<WorldPackageFaultPoint>? faultInjector,
+        Func<WorldPackageIssue?> lockCleanupIssueInjector)
+    {
+        _faultInjector = faultInjector;
+        _lockCleanupIssueInjector = lockCleanupIssueInjector ?? throw new ArgumentNullException(nameof(lockCleanupIssueInjector));
+    }
 
     public WorldPackageSaveResult Save(string destinationPath, WorldSessionSnapshot snapshot)
     {
@@ -35,8 +44,14 @@ public sealed class WorldPackageWriter
             return Failure(target, "world-package.serialization", "World package serialization failed", WorldPackageReader.Normalize(exception.Message));
         }
 
-        if (!WorldPackageLock.TryAcquire(target, out FileStream? lockStream, out WorldPackageIssue? lockIssue))
+        if (!WorldPackageLockLease.TryAcquire(
+                target,
+                _lockCleanupIssueInjector,
+                out WorldPackageLockLease? lease,
+                out WorldPackageIssue? lockIssue,
+                out WorldPackageIssue? metadataIssue))
             return Failure(target, lockIssue!);
+        List<WorldPackageIssue> leaseIssues = metadataIssue is null ? [] : [metadataIssue];
 
         string writing = WorldPackageSidecars.Writing(target);
         string previous = WorldPackageSidecars.Previous(target);
@@ -59,15 +74,19 @@ public sealed class WorldPackageWriter
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or NotSupportedException)
         {
             TryRestorePrevious(target, previous);
-            result = Failure(target, "world-package.save-io", "Atomic world package save failed", WorldPackageReader.Normalize(exception.Message));
+            result = Failure(
+                target,
+                "world-package.save-transaction",
+                "Atomic world package save transaction failed",
+                "A filesystem operation failed; the prior target or recovery evidence remains authoritative.");
         }
         finally
         {
-            lockStream!.Dispose();
+            WorldPackageIssue? cleanupIssue = lease!.Release();
+            if (cleanupIssue is not null) leaseIssues.Add(cleanupIssue);
         }
 
-        WorldPackageIssue? cleanupIssue = WorldPackageLock.Delete(target);
-        return cleanupIssue is null ? result : Failure(target, cleanupIssue);
+        return AppendIssues(result, leaseIssues);
     }
 
     private WorldPackageSaveResult SaveWithLock(string target, string writing, string previous, PackageContent content)
@@ -185,6 +204,9 @@ public sealed class WorldPackageWriter
         Failure(path, WorldPackageReader.Issue(code, summary, detail));
     private static WorldPackageSaveResult Failure(string path, WorldPackageIssue issue) =>
         new(false, path, string.Empty, string.Empty, 0, Array.AsReadOnly([issue]));
+    private static WorldPackageSaveResult AppendIssues(WorldPackageSaveResult result, IReadOnlyList<WorldPackageIssue> issues) => issues.Count == 0
+        ? result
+        : result with { Issues = Array.AsReadOnly(result.Issues.Concat(issues).ToArray()) };
 
     private sealed class PackageContent
     {

@@ -1,4 +1,4 @@
-# Phase 0.5 scope
+# Phase 0.5R scope
 
 Phase 0.5 preserves all accepted Phase 0.1-0.4R vectors and adds the first supported persistent foundation session. `WorldSessionSnapshot` is an immutable coherent view of committed authoritative state. Capture is permitted only while Paused or Faulted, does not mutate the session, and records identity, definition, logical tick, status, command/event counters, canonical pending commands, bounded fault issues, and state digest. Ready and active-tick capture fail closed.
 
@@ -6,7 +6,9 @@ Phase 0.5 preserves all accepted Phase 0.1-0.4R vectors and adds the first suppo
 
 The `.emergence-world` package is a bounded ZIP transport with exactly `definition.json`, `snapshot.json`, and `package-manifest.json` in that order. Strict UTF-8 without BOM, strict JSON schemas, redundant hashes/lengths, semantic digests, and cross-document identities are validated. ZIP bytes are transport; canonical semantic digests are authoritative. Addressed RNG has no mutable hidden cursor, so root seed plus algorithm/domain identity preserve its continuation.
 
-Writes use `.writing`, `.previous`, and `.lock`; invalid displaced targets may be quarantined as `.corrupt`. Staging is flushed and semantically re-read before replacement. Recovery validates candidates and follows a fixed decision table without timestamps. Success leaves no temporary sidecars.
+Writes use `.writing`, `.previous`, and `.lock`; invalid displaced targets may be quarantined as `.corrupt`. The `.lock` file is a nonauthoritative rendezvous and its existence is not ownership: only a live exclusive operating-system file handle owns the target. Stale empty, malformed, or partial lock metadata is reacquirable without timestamps, file age, or trusted PID metadata. Active contention fails closed before recovery inspection or package mutation. Staging is flushed and semantically re-read before replacement. Recovery validates candidates and follows the unchanged fixed decision table without timestamps. Normal success leaves no temporary sidecars.
+
+Lock cleanup is part of an idempotent lease release, uses operating-system delete-on-close semantics while ownership is exclusive on the authoritative Windows x86_64 target, and never performs a later blind path deletion. A cleanup warning is reported separately and does not reclassify a fully promoted and validated package or recovery as failed. Lock metadata is bounded strict UTF-8 diagnostics only and is excluded from package/session/manifest digests.
 
 The App provides one manual save location, `user://saves/foundation-session.emergence-world`, with Save, Load, and Verify controls. Failed load leaves the current session unchanged. No background simulation runs while the App is closed.
 

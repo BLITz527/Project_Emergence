@@ -8,7 +8,7 @@ namespace Emergence.ReviewPack;
 
 public static class Phase05EvidenceValidator
 {
-    public const string Phase = "M0 Phase 0.5";
+    public const string Phase = "M0 Phase 0.5R";
     public const string AlgorithmCatalogDigest = "78818c4c6a6a4aeb498a634e4cd77e5854c3fa35be2d075aabb888cb0fe7d9a1";
     public const string CommandProcessorCatalogDigest = "e2555f63b5b4c9644229336da1856f35c8dabf3cf54765e224d3c51e19a3d8f6";
     public const string DefinitionDigest = "ca024a17b1e0ee02b57d639bea1f57d0f04154e6c3da501fd24af0ebe9798e0e";
@@ -44,11 +44,12 @@ public static class Phase05EvidenceValidator
         string finalState = string.Empty, trace = string.Empty, nextSequence = string.Empty;
         long packageBytes = 0;
         bool rngMatched = false, appRoundTrip = false, packagedRoundTrip = false;
+        bool appStaleLock = false, packagedStaleLock = false;
         string[] eventIds = [];
-        int recoveryCount = 0, recoveryPassed = 0, entryCount = 0;
+        int recoveryCount = 0, recoveryPassed = 0, lockCount = 0, lockPassed = 0, entryCount = 0;
 
         foreach (string relative in EvidenceFiles)
-            if (!File.Exists(Resolve(reviewRoot, relative))) errors.Add($"Phase 0.5 evidence is missing: {relative}.");
+            if (!File.Exists(Resolve(reviewRoot, relative))) errors.Add($"Phase 0.5R evidence is missing: {relative}.");
 
         try
         {
@@ -57,7 +58,7 @@ public static class Phase05EvidenceValidator
             Exact(root, "success", "algorithmCatalogDigest", "commandProcessorCatalogDigest", "definitionDigest",
                 "preSaveStateDigest", "snapshotDigest", "packageIdentityDigest", "manifestDigest", "packageBytes",
                 "loadedStateDigest", "rngContinuationMatched", "nextCommandSequence", "continuationEventIds",
-                "finalStateDigest", "persistenceTraceDigest", "recoveryChecks", "checks");
+                "finalStateDigest", "persistenceTraceDigest", "recoveryChecks", "lockChecks", "checks");
             if (root.GetProperty("success").ValueKind != JsonValueKind.True) errors.Add("Persistence self-test does not report success=true.");
             algorithm = String(root, "algorithmCatalogDigest");
             processors = String(root, "commandProcessorCatalogDigest");
@@ -76,6 +77,10 @@ public static class Phase05EvidenceValidator
             JsonElement[] recovery = root.GetProperty("recoveryChecks").EnumerateArray().ToArray();
             recoveryCount = recovery.Length;
             recoveryPassed = recovery.Count(IsSuccessCheck);
+            JsonElement[] lockChecks = root.GetProperty("lockChecks").EnumerateArray().ToArray();
+            lockCount = lockChecks.Length;
+            lockPassed = lockChecks.Count(IsSuccessCheck);
+            RequireLockChecks(lockChecks, errors);
             if (!root.GetProperty("checks").EnumerateArray().All(IsSuccessCheck)) errors.Add("Persistence self-test contains a failed diagnostic check.");
         }
         catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or FormatException)
@@ -96,6 +101,7 @@ public static class Phase05EvidenceValidator
         if (nextSequence != "5") errors.Add($"Next command sequence is '{nextSequence}', expected '5'.");
         if (!eventIds.SequenceEqual(ContinuationEventIds, StringComparer.Ordinal)) errors.Add("Continuation EventIds do not match the locked vector.");
         if (recoveryCount != 5 || recoveryPassed != 5) errors.Add($"Recovery scenarios passed {recoveryPassed}/{recoveryCount}, expected 5/5.");
+        if (lockCount != 6 || lockPassed != 6) errors.Add($"Lock checks passed {lockPassed}/{lockCount}, expected 6/6.");
 
         string packagePath = Resolve(reviewRoot, "cli/foundation-session.emergence-world");
         try
@@ -134,16 +140,17 @@ public static class Phase05EvidenceValidator
         ValidateCommandReport(reviewRoot, "cli/world-package-fixture.json", packageIdentity, manifestDigest, snapshot, preState, errors);
         ValidateCommandReport(reviewRoot, "cli/world-package-verify.json", packageIdentity, manifestDigest, snapshot, preState, errors);
         ValidateSuccessOnly(reviewRoot, "cli/world-package-recover.json", errors);
-        appRoundTrip = ValidateDoctor(reviewRoot, "app/doctor.json", errors);
-        packagedRoundTrip = ValidateDoctor(reviewRoot, "package/packaged-doctor.json", errors);
+        (appRoundTrip, appStaleLock) = ValidateDoctor(reviewRoot, "app/doctor.json", errors);
+        (packagedRoundTrip, packagedStaleLock) = ValidateDoctor(reviewRoot, "package/packaged-doctor.json", errors);
 
         EvidenceStatus status = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
         return new PersistenceEvidence(
             "emergence persistence-self-test --json <path>", status, algorithm, processors, definition, preState,
             snapshot, packageIdentity, manifestDigest, packageBytes, entryCount, loadedState, rngMatched, nextSequence,
-            Array.AsReadOnly(eventIds), finalState, trace, recoveryCount, recoveryPassed, appRoundTrip, packagedRoundTrip,
+            Array.AsReadOnly(eventIds), finalState, trace, recoveryCount, recoveryPassed, lockCount, lockPassed,
+            appRoundTrip, packagedRoundTrip, appStaleLock, packagedStaleLock,
             Array.AsReadOnly(EvidenceFiles), errors.Count == 0
-                ? "Phase 0.5 snapshot, package, continuation, recovery, and App/package round-trip evidence passed independent semantic validation."
+                ? "Phase 0.5R snapshot, package, unchanged continuation/recovery, crash-recoverable lock, and App/package evidence passed independent semantic validation."
                 : string.Join(" ", errors));
     }
 
@@ -226,23 +233,44 @@ public static class Phase05EvidenceValidator
         }
     }
 
-    private static bool ValidateDoctor(string root, string relative, List<string> errors)
+    private static (bool RoundTrip, bool StaleLock) ValidateDoctor(string root, string relative, List<string> errors)
     {
         try
         {
             using JsonDocument document = ReadJson(Resolve(root, relative));
             JsonElement value = document.RootElement;
             JsonElement[] checks = value.GetProperty("checks").EnumerateArray().ToArray();
-            string[] ids = ["persistence.round-trip", "persistence.rng-continuation", "persistence.sidecars"];
+            string[] ids = ["persistence.round-trip", "persistence.rng-continuation", "persistence.stale-lock", "persistence.sidecars"];
             bool valid = value.GetProperty("success").ValueKind == JsonValueKind.True
                 && ids.All(id => checks.Any(check => String(check, "id") == id && String(check, "severity") == "Success"));
-            if (!valid) errors.Add($"{relative} does not prove the required save/load, RNG, and sidecar checks.");
-            return valid;
+            bool staleLock = checks.Any(check =>
+                String(check, "id") == "persistence.stale-lock"
+                && String(check, "severity") == "Success");
+            if (!valid) errors.Add($"{relative} does not prove the required save/load, RNG, stale-lock, and sidecar checks.");
+            return (valid, staleLock);
         }
         catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException)
         {
             errors.Add($"{relative} persistence evidence is invalid: {exception.Message}");
-            return false;
+            return (false, false);
+        }
+    }
+
+    private static void RequireLockChecks(IReadOnlyList<JsonElement> checks, List<string> errors)
+    {
+        string[] required =
+        [
+            "lock.stale-save",
+            "lock.stale-recover",
+            "lock.active-save-contention",
+            "lock.active-recovery-contention",
+            "lock.reacquire-after-release",
+            "lock.normal-sidecar-clean",
+        ];
+        foreach (string id in required)
+        {
+            if (!checks.Any(check => String(check, "id") == id && IsSuccessCheck(check)))
+                errors.Add($"Persistence self-test is missing successful lock check '{id}'.");
         }
     }
 
@@ -252,7 +280,7 @@ public static class Phase05EvidenceValidator
     private static string String(JsonElement element, string property) => element.GetProperty(property).GetString() ?? string.Empty;
     private static string Resolve(string root, string relative) => Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
     private static string Hex(byte[] bytes) => Convert.ToHexStringLower(bytes);
-    private static void Require(string actual, string expected, string name, List<string> errors) { if (actual != expected) errors.Add($"Phase 0.5 {name} digest mismatch."); }
+    private static void Require(string actual, string expected, string name, List<string> errors) { if (actual != expected) errors.Add($"Phase 0.5R {name} digest mismatch."); }
     private static void Exact(JsonElement element, params string[] expected)
     {
         if (element.ValueKind != JsonValueKind.Object) throw new JsonException("Expected a JSON object.");

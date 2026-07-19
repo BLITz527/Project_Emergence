@@ -280,6 +280,8 @@ public sealed class WorldPackageTests
         RecoveryResult recovery = new WorldPackageRecovery().Recover(path);
         Assert.True(recovery.Success);
         Assert.True(new WorldPackageReader().Load(path).Success);
+        Assert.True(WorldPackageLockLease.TryAcquire(path, null, out WorldPackageLockLease? lease, out _, out _));
+        Assert.Null(lease!.Release());
         Assert.All([path + ".writing", path + ".previous", path + ".lock"], sidecar => Assert.False(File.Exists(sidecar)));
     }
 

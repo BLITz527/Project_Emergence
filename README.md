@@ -1,6 +1,6 @@
 # Project Emergence
 
-Project Emergence is in **Milestone 0, Phase 0.5**. The nonbiological foundation now supports coherent Paused/Faulted session snapshots, strict V2 session definitions, atomic `.emergence-world` save/load packages, deterministic recovery, and exact continuation of logical time, counters, pending commands, fault state, ruleset/algorithm identity, and addressed RNG inputs.
+Project Emergence is in **Milestone 0, Phase 0.5R**. The nonbiological foundation supports coherent Paused/Faulted session snapshots, strict V2 session definitions, atomic `.emergence-world` save/load packages, deterministic recovery, and exact continuation of logical time, counters, pending commands, fault state, ruleset/algorithm identity, and addressed RNG inputs. Phase 0.5R hardens the package lock as a crash-recoverable exclusive operating-system handle lease without changing package semantics or deterministic vectors.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ The immutable authoritative design archive is under `docs/design/v1.0/` with SHA
 .\eng\doctor.ps1
 ```
 
-All prior CLI evidence remains. Phase 0.5 adds `persistence-self-test` and `world-package fixture|verify|recover`.
+All prior CLI evidence remains. `persistence-self-test` includes deterministic stale-lock Save/Recover, active-contention, post-release reacquisition, and clean-sidecar checks; `world-package fixture|verify|recover` retains the Phase 0.5 package contract.
 
 ```powershell
 dotnet run --project .\src\Emergence.Cli -- persistence-self-test
@@ -29,7 +29,9 @@ dotnet run --project .\src\Emergence.Cli -- world-package verify .\foundation-se
 dotnet run --project .\src\Emergence.Cli -- world-package recover .\foundation-session.emergence-world
 ```
 
-With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/capture-app-screenshot.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell displays `FOUNDATION / M0.5`, saves to `user://saves/foundation-session.emergence-world`, and never advances simulation in a frame callback or while closed.
+With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/capture-app-screenshot.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell displays `FOUNDATION / M0.5R`, saves to `user://saves/foundation-session.emergence-world`, and never advances simulation in a frame callback or while closed.
+
+The `.lock` path is only a rendezvous. Live exclusive OS-handle ownership is authoritative; an ordinary stale lock file is immediately reacquirable without age, timestamp, PID, or metadata decisions. Active contention fails closed with no package/sidecar mutation. Lease cleanup is ownership-safe, and a fully promoted and validated package remains committed if cleanup reports a nonfatal warning.
 
 ## Repository map
 

@@ -30,7 +30,8 @@ public sealed record PersistenceSelfTestReport(
     [property: JsonPropertyOrder(13)] string FinalStateDigest,
     [property: JsonPropertyOrder(14)] string PersistenceTraceDigest,
     [property: JsonPropertyOrder(15)] IReadOnlyList<DiagnosticCheck> RecoveryChecks,
-    [property: JsonPropertyOrder(16)] IReadOnlyList<DiagnosticCheck> Checks);
+    [property: JsonPropertyOrder(16)] IReadOnlyList<DiagnosticCheck> LockChecks,
+    [property: JsonPropertyOrder(17)] IReadOnlyList<DiagnosticCheck> Checks);
 
 public static class PersistenceSelfTest
 {
@@ -100,6 +101,7 @@ public static class PersistenceSelfTest
             Require(finalState == restored.StateDigest.ToString(), "Continuation final states differ.");
 
             IReadOnlyList<DiagnosticCheck> recoveryChecks = RunRecoveryChecks(packagePath, temporaryRoot);
+            IReadOnlyList<DiagnosticCheck> lockChecks = RunLockChecks(packagePath, snapshot, temporaryRoot);
             bool sidecarsClean = WorldPackageSidecarNames(packagePath).All(path => !File.Exists(path));
             string trace = ComputeTrace(
                 snapshot,
@@ -126,7 +128,8 @@ public static class PersistenceSelfTest
                 Check("persistence.sidecars", sidecarsClean, "Successful save sidecars", sidecarsClean ? "none" : "unexpected sidecar"),
             ];
             bool success = checks.All(static check => check.Severity == DiagnosticSeverity.Success)
-                && recoveryChecks.All(static check => check.Severity == DiagnosticSeverity.Success);
+                && recoveryChecks.All(static check => check.Severity == DiagnosticSeverity.Success)
+                && lockChecks.All(static check => check.Severity == DiagnosticSeverity.Success);
             return new(
                 success,
                 AlgorithmCatalog.Phase05.Digest.ToString(),
@@ -144,6 +147,7 @@ public static class PersistenceSelfTest
                 finalState,
                 trace,
                 recoveryChecks,
+                lockChecks,
                 checks.AsReadOnly());
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
@@ -151,7 +155,7 @@ public static class PersistenceSelfTest
             DiagnosticCheck failure = Check("persistence.self-test-exception", false, "Persistence self-test failed", $"{exception.GetType().Name}: {exception.Message}");
             return new(false, AlgorithmCatalog.Phase05.Digest.ToString(), string.Empty, string.Empty, string.Empty, string.Empty,
                 string.Empty, string.Empty, 0, string.Empty, false, default, Array.Empty<string>(), string.Empty, string.Empty,
-                Array.Empty<DiagnosticCheck>(), Array.AsReadOnly([failure]));
+                Array.Empty<DiagnosticCheck>(), Array.Empty<DiagnosticCheck>(), Array.AsReadOnly([failure]));
         }
         finally
         {
@@ -215,6 +219,93 @@ public static class PersistenceSelfTest
         arrange(target);
         RecoveryResult result = new WorldPackageRecovery().Recover(target);
         return Check("recovery." + id, validate(result), "Recovery scenario", $"success={result.Success};actions={result.Actions.Count}");
+    }
+
+    private static IReadOnlyList<DiagnosticCheck> RunLockChecks(
+        string validPackage,
+        WorldSessionSnapshot snapshot,
+        string root)
+    {
+        List<DiagnosticCheck> checks = [];
+
+        string staleSave = LockScenarioPath(root, "stale-save");
+        File.WriteAllBytes(staleSave + ".lock", [0xff, 0x00, 0x80]);
+        WorldPackageSaveResult staleSaveResult = new WorldPackageWriter().Save(staleSave, snapshot);
+        checks.Add(Check(
+            "lock.stale-save",
+            staleSaveResult.Success && !File.Exists(staleSave + ".lock"),
+            "Stale lock save reacquisition",
+            $"success={staleSaveResult.Success};sidecar={File.Exists(staleSave + ".lock")}"));
+
+        string staleRecover = LockScenarioPath(root, "stale-recover");
+        File.Copy(validPackage, staleRecover);
+        File.WriteAllBytes(staleRecover + ".lock", [0x50, 0x45, 0x00]);
+        RecoveryResult staleRecoverResult = new WorldPackageRecovery().Recover(staleRecover);
+        checks.Add(Check(
+            "lock.stale-recover",
+            staleRecoverResult.Success && !File.Exists(staleRecover + ".lock"),
+            "Stale lock recovery reacquisition",
+            $"success={staleRecoverResult.Success};sidecar={File.Exists(staleRecover + ".lock")}"));
+
+        string contention = LockScenarioPath(root, "active-contention");
+        File.Copy(validPackage, contention);
+        byte[] targetBefore = File.ReadAllBytes(contention);
+        WorldPackageSaveResult blockedSave;
+        RecoveryResult blockedRecovery;
+        using (FileStream owner = new(
+                   contention + ".lock",
+                   FileMode.OpenOrCreate,
+                   FileAccess.ReadWrite,
+                   FileShare.None))
+        {
+            blockedSave = new WorldPackageWriter().Save(contention, snapshot);
+            blockedRecovery = new WorldPackageRecovery().Recover(contention);
+        }
+        bool targetUnchanged = targetBefore.AsSpan().SequenceEqual(File.ReadAllBytes(contention));
+        checks.Add(Check(
+            "lock.active-save-contention",
+            !blockedSave.Success
+            && blockedSave.Issues.Count == 1
+            && blockedSave.Issues[0].Code == "world-package.lock-contention"
+            && targetUnchanged,
+            "Active lock blocks save",
+            $"blocked={!blockedSave.Success};unchanged={targetUnchanged}"));
+        checks.Add(Check(
+            "lock.active-recovery-contention",
+            !blockedRecovery.Success
+            && blockedRecovery.Issues.Count == 1
+            && blockedRecovery.Issues[0].Code == "world-package.lock-contention"
+            && targetUnchanged,
+            "Active lock blocks recovery",
+            $"blocked={!blockedRecovery.Success};unchanged={targetUnchanged}"));
+
+        bool stalePathRemained = File.Exists(contention + ".lock");
+        WorldPackageSaveResult reacquired = new WorldPackageWriter().Save(contention, snapshot);
+        bool reacquiredClean = !File.Exists(contention + ".lock");
+        checks.Add(Check(
+            "lock.reacquire-after-release",
+            stalePathRemained && reacquired.Success && reacquiredClean,
+            "Released lock handle permits reacquisition",
+            $"stalePath={stalePathRemained};success={reacquired.Success};sidecar={!reacquiredClean}"));
+
+        bool normalClean = !File.Exists(validPackage + ".lock")
+            && !File.Exists(staleSave + ".lock")
+            && !File.Exists(staleRecover + ".lock")
+            && !File.Exists(contention + ".lock");
+        checks.Add(Check(
+            "lock.normal-sidecar-clean",
+            normalClean,
+            "Successful operations leave no normal lock sidecar",
+            normalClean ? "none" : "sidecar remains"));
+
+        return checks.AsReadOnly();
+    }
+
+    private static string LockScenarioPath(string root, string name)
+    {
+        string directory = Path.Combine(root, "lock-" + name);
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, "scenario.emergence-world");
     }
 
     private static IEnumerable<string> WorldPackageSidecarNames(string packagePath) =>

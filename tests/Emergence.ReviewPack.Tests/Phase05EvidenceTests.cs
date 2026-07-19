@@ -35,6 +35,8 @@ public sealed class Phase05EvidenceTests
     [InlineData("recovery-report")]
     [InlineData("source-app-round-trip")]
     [InlineData("packaged-round-trip")]
+    [InlineData("source-app-stale-lock")]
+    [InlineData("packaged-stale-lock")]
     public void TamperedPersistenceClaimsFailClosed(string mutation)
     {
         using Fixture fixture = new();
@@ -118,6 +120,12 @@ public sealed class Phase05EvidenceTests
                 case "packaged-round-trip":
                     Replace("package/packaged-doctor.json", "persistence.sidecars", "persistence.sidecars-tampered");
                     break;
+                case "source-app-stale-lock":
+                    Replace("app/doctor.json", "persistence.stale-lock", "persistence.stale-lock-tampered");
+                    break;
+                case "packaged-stale-lock":
+                    Replace("package/packaged-doctor.json", "persistence.stale-lock", "persistence.stale-lock-tampered");
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(mutation));
             }
@@ -163,6 +171,7 @@ public sealed class Phase05EvidenceTests
             {
                 new { id = "persistence.round-trip", severity = "Success" },
                 new { id = "persistence.rng-continuation", severity = "Success" },
+                new { id = "persistence.stale-lock", severity = "Success" },
                 new { id = "persistence.sidecars", severity = "Success" },
             },
         });

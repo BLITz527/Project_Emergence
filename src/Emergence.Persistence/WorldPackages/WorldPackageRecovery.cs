@@ -42,6 +42,14 @@ public sealed class RecoveryResult
 public sealed class WorldPackageRecovery
 {
     private readonly WorldPackageReader _reader = new();
+    private readonly Func<WorldPackageIssue?>? _lockCleanupIssueInjector;
+
+    public WorldPackageRecovery()
+    {
+    }
+
+    internal WorldPackageRecovery(Func<WorldPackageIssue?> lockCleanupIssueInjector) =>
+        _lockCleanupIssueInjector = lockCleanupIssueInjector ?? throw new ArgumentNullException(nameof(lockCleanupIssueInjector));
 
     public RecoveryResult Recover(string packagePath)
     {
@@ -51,13 +59,26 @@ public sealed class WorldPackageRecovery
         if (!WorldPackageSidecars.ValidateSafe(target, includeLock: false, out WorldPackageIssue? sidecarIssue))
             return Failure(target, [], sidecarIssue!);
 
-        if (!WorldPackageLock.TryAcquire(target, out FileStream? lockStream, out WorldPackageIssue? lockIssue))
+        if (!WorldPackageLockLease.TryAcquire(
+                target,
+                _lockCleanupIssueInjector,
+                out WorldPackageLockLease? lease,
+                out WorldPackageIssue? lockIssue,
+                out WorldPackageIssue? metadataIssue))
             return Failure(target, [], lockIssue!);
+        List<WorldPackageIssue> leaseIssues = metadataIssue is null ? [] : [metadataIssue];
         RecoveryResult result;
-        try { result = RecoverWithLock(target, allowEmpty: false); }
-        finally { lockStream!.Dispose(); }
-        WorldPackageIssue? cleanup = WorldPackageLock.Delete(target);
-        return cleanup is null ? result : Failure(target, result.Actions, cleanup);
+        try
+        {
+            result = RecoverWithLock(target, allowEmpty: false);
+        }
+        finally
+        {
+            WorldPackageIssue? cleanupIssue = lease!.Release();
+            if (cleanupIssue is not null) leaseIssues.Add(cleanupIssue);
+        }
+
+        return AppendIssues(result, leaseIssues);
     }
 
     internal RecoveryResult RecoverWithLock(string target, bool allowEmpty)
@@ -139,9 +160,9 @@ public sealed class WorldPackageRecovery
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             return Failure(target, actions, WorldPackageReader.Issue(
-                "world-package.recovery-io",
-                "World package recovery failed",
-                WorldPackageReader.Normalize(exception.Message)));
+                "world-package.recovery-transaction",
+                "World package recovery transaction failed",
+                "A filesystem operation failed; valid candidates and recovery evidence were preserved where possible."));
         }
     }
 
@@ -168,6 +189,9 @@ public sealed class WorldPackageRecovery
 
     private static RecoveryResult Success(string target, IEnumerable<RecoveryAction> actions) => new(true, target, actions, []);
     private static RecoveryResult Failure(string target, IEnumerable<RecoveryAction> actions, WorldPackageIssue issue) => new(false, target, actions, [issue]);
+    private static RecoveryResult AppendIssues(RecoveryResult result, IReadOnlyList<WorldPackageIssue> issues) => issues.Count == 0
+        ? result
+        : new RecoveryResult(result.Success, result.TargetPath, result.Actions, result.Issues.Concat(issues));
     private readonly record struct Candidate(bool Exists, bool Valid);
 }
 
@@ -203,45 +227,6 @@ internal static class WorldPackageSidecars
             }
         }
         return true;
-    }
-}
-
-internal static class WorldPackageLock
-{
-    public static bool TryAcquire(string target, out FileStream? stream, out WorldPackageIssue? issue)
-    {
-        stream = null;
-        issue = null;
-        string path = WorldPackageSidecars.Lock(target);
-        try
-        {
-            stream = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.WriteThrough);
-            return true;
-        }
-        catch (IOException exception)
-        {
-            issue = WorldPackageReader.Issue("world-package.lock-contention", "World package is locked", WorldPackageReader.Normalize(exception.Message));
-            return false;
-        }
-        catch (UnauthorizedAccessException exception)
-        {
-            issue = WorldPackageReader.Issue("world-package.lock-unavailable", "World package lock is unavailable", WorldPackageReader.Normalize(exception.Message));
-            return false;
-        }
-    }
-
-    public static WorldPackageIssue? Delete(string target)
-    {
-        try
-        {
-            string path = WorldPackageSidecars.Lock(target);
-            if (File.Exists(path)) File.Delete(path);
-            return null;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return WorldPackageReader.Issue("world-package.lock-cleanup", "World package lock cleanup failed", WorldPackageReader.Normalize(exception.Message));
-        }
     }
 }
 

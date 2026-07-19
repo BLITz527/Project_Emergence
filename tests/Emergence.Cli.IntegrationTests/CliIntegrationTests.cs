@@ -228,6 +228,14 @@ public sealed class CliIntegrationTests
         Assert.Equal(PersistenceSelfTest.ExpectedFinalStateDigest, root.GetProperty("finalStateDigest").GetString());
         Assert.Equal(PersistenceSelfTest.ExpectedPersistenceTraceDigest, root.GetProperty("persistenceTraceDigest").GetString());
         Assert.Equal(5, root.GetProperty("recoveryChecks").GetArrayLength());
+        JsonElement lockChecks = root.GetProperty("lockChecks");
+        Assert.Equal(6, lockChecks.GetArrayLength());
+        Assert.Contains(lockChecks.EnumerateArray(), static check => check.GetProperty("id").GetString() == "lock.stale-save");
+        Assert.Contains(lockChecks.EnumerateArray(), static check => check.GetProperty("id").GetString() == "lock.stale-recover");
+        Assert.Contains(lockChecks.EnumerateArray(), static check => check.GetProperty("id").GetString() == "lock.active-save-contention");
+        Assert.Contains(lockChecks.EnumerateArray(), static check => check.GetProperty("id").GetString() == "lock.active-recovery-contention");
+        Assert.Contains(lockChecks.EnumerateArray(), static check => check.GetProperty("id").GetString() == "lock.reacquire-after-release");
+        Assert.Contains(lockChecks.EnumerateArray(), static check => check.GetProperty("id").GetString() == "lock.normal-sidecar-clean");
         Assert.DoesNotContain(Path.GetTempPath(), first.Output, StringComparison.OrdinalIgnoreCase);
     }
 

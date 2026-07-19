@@ -16,9 +16,9 @@ Explicit 256-bit seeds, addressed RNG, exact vectors, unbiased bounded sampling,
 
 Immutable definition, single-owner in-memory session, six-phase scheduler, bounded commands, transactional event commitment, deterministic vectors, immutable presentation, and hardened callback transaction boundaries.
 
-## Phase 0.5 - coherent snapshots and atomic save/load
+## Phase 0.5 / 0.5R - coherent snapshots and crash-recoverable atomic save/load
 
-Current scope: strict V2 definitions, coherent Paused/Faulted snapshots, exact compatibility checks, callback-free restore, bounded three-entry world packages, atomic replacement, deterministic recovery, deterministic RNG/command/event continuation, CLI/App/package workflows, and independent review evidence.
+Current scope: strict V2 definitions, coherent Paused/Faulted snapshots, exact compatibility checks, callback-free restore, bounded three-entry world packages, atomic replacement, deterministic recovery, deterministic RNG/command/event continuation, CLI/App/package workflows, and independent review evidence. Phase 0.5R corrects lock ownership to use a live exclusive OS-handle lease, makes stale ordinary lock files reacquirable, keeps active contention fail-closed, and reports post-commit cleanup warnings without negating committed state. The package format, recovery candidate order, and all deterministic vectors remain unchanged.
 
 ## Deferred
 

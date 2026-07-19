@@ -15,18 +15,23 @@ if (-not $godot) { throw 'Godot 4.7 stable .NET executable was not found.' }
 $gui = $godot -replace '_console\.exe$', '.exe'
 if (-not (Test-Path -LiteralPath $gui -PathType Leaf)) { $gui = $godot }
 $project = Join-Path $root 'src\Emergence.App'
-$process = Start-Process -FilePath $gui -ArgumentList @('--path', $project, '--', '--save-load-qa') -WorkingDirectory $project -PassThru
+$ready = Join-Path $output 'shell-ready.txt'
+if (Test-Path -LiteralPath $ready) { Remove-Item -LiteralPath $ready -Force }
+$process = Start-Process -FilePath $gui -ArgumentList @('--path', $project, '--', '--save-load-qa', '--qa-ready-file', $ready) -WorkingDirectory $project -PassThru
 
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 100
         $process.Refresh()
-    } while ($process.MainWindowHandle -eq [IntPtr]::Zero -and -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline)
+    } while (($process.MainWindowHandle -eq [IntPtr]::Zero -or -not (Test-Path -LiteralPath $ready -PathType Leaf)) -and -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline)
 
     if ($process.HasExited) { throw "Godot normal shell exited early with code $($process.ExitCode)." }
     if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Godot normal shell did not expose a window within 30 seconds.' }
-    Start-Sleep -Seconds 2
+    if (-not (Test-Path -LiteralPath $ready -PathType Leaf) -or (Get-Content -LiteralPath $ready -Raw).Trim() -ne 'PROJECT_EMERGENCE_SAVE_LOAD_QA_READY') {
+        throw 'Godot normal shell did not complete the save/load QA handshake within 30 seconds.'
+    }
+    Start-Sleep -Milliseconds 500
 
     Add-Type -AssemblyName System.Drawing
     Add-Type @'
@@ -52,7 +57,7 @@ public static class EmergenceWindowCapture {
         $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
     } finally { $bitmap.Dispose() }
 
-    'PASSED: normal FOUNDATION / M0.5 shell launched, saved and verified a coherent Paused tick 0 session, loaded it with no biological state, rendered, was captured fresh, and closed cleanly.' |
+    'PASSED: normal FOUNDATION / M0.5R shell launched, saved and verified a coherent Paused tick 0 session, loaded it with no biological state, rendered, was captured fresh, and closed cleanly.' |
         Out-File -FilePath (Join-Path $output 'manual-launch-status.txt') -Encoding utf8
 } finally {
     if (-not $process.HasExited) {

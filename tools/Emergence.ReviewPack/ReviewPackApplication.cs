@@ -64,7 +64,7 @@ public static class ReviewPackApplication
         }
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.5_{timestamp}");
+        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.5R_{timestamp}");
         Directory.CreateDirectory(reviewRoot);
         foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "persistence", "app", "package", "docs" })
         {
@@ -79,12 +79,13 @@ public static class ReviewPackApplication
         Dictionary<string, string> featureMetadata = new(StringComparer.Ordinal)
         {
             ["branch"] = OneLine(branch.Output),
-            ["featureCommit"] = OneLine(head.Output),
-            ["featureSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
-            ["featureParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
+            ["correctionCommit"] = OneLine(head.Output),
+            ["correctionSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
+            ["correctionParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
             ["acceptedMainCommit"] = "edb6f24898453841a4ecf3283bdd114ccebc2167",
-            ["acceptedCorrectionCommit"] = "b2c6e61b2daac16e2ba0555d5f59c7d440c09cad",
-            ["originalPhase04Commit"] = "903e15ca60b9d7ba2513ace3468cd7691ec2d660",
+            ["originalPhase05Commit"] = "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58",
+            ["originalPhase05Subject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58").Output),
+            ["originalPhase05Parent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58^").Output),
         };
         Write(Path.Combine(reviewRoot, "git", "feature-metadata.json"), JsonSerializer.Serialize(featureMetadata, new JsonSerializerOptions { WriteIndented = true }));
 
@@ -118,7 +119,7 @@ public static class ReviewPackApplication
         (string godotVersion, string godotPath, bool templates) = ReadPreflight(reviewRoot);
         string gitCommit = OneLine(head.Output);
         IReadOnlyList<TestEvidence> tests = ReadTests(reviewRoot);
-        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5");
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5R");
         PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", "0.5.0-dev", Phase05EvidenceValidator.Phase);
         BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
         CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
@@ -149,7 +150,7 @@ public static class ReviewPackApplication
         if (rng.Status != EvidenceStatus.Passed) warnings.Add($"Required RNG evidence is not passed: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed) warnings.Add($"Required ruleset evidence is not passed: {rulesets.Detail}");
         if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4R regression evidence is not passed: {session.Detail}");
-        if (persistence.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.5 persistence evidence is not passed: {persistence.Detail}");
+        if (persistence.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.5R persistence evidence is not passed: {persistence.Detail}");
         if (string.IsNullOrWhiteSpace(designDigest))
         {
             warnings.Add("Imported design digest is missing.");
@@ -346,7 +347,7 @@ public static class ReviewPackApplication
     }
 
     private static string BuildReadme(ReviewManifest manifest) =>
-        $"# Project Emergence M0 Phase 0.5 Review Pack\n\n" +
+        $"# Project Emergence M0 Phase 0.5R Review Pack\n\n" +
         $"Created UTC: {manifest.CreatedUtc:O}\n\n" +
         $"Reviewed commit: `{manifest.GitCommit}` on `{manifest.GitBranch}`; clean={manifest.GitClean}.\n\n" +
         $"Design archive SHA-256: `{manifest.DesignArchiveDigest}`.\n\n" +

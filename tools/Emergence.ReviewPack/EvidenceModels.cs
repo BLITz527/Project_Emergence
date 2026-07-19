@@ -130,8 +130,12 @@ public sealed record PersistenceEvidence(
     string PersistenceTraceDigest,
     int RecoveryScenarioCount,
     int RecoveryScenarioPassed,
+    int LockCheckCount,
+    int LockCheckPassed,
     bool AppRoundTripValid,
     bool PackagedRoundTripValid,
+    bool AppStaleLockValid,
+    bool PackagedStaleLockValid,
     IReadOnlyList<string> EvidencePaths,
     string Detail);
 

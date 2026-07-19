@@ -272,7 +272,7 @@ internal static class DoctorEvidence
             if (expectedPhase == Phase05EvidenceValidator.Phase
                 && (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                     || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
-                requiredChecks = [.. requiredChecks, "persistence.round-trip", "persistence.rng-continuation", "persistence.sidecars"];
+                requiredChecks = [.. requiredChecks, "persistence.round-trip", "persistence.rng-continuation", "persistence.stale-lock", "persistence.sidecars"];
             if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
             {
                 errors.Add("Doctor JSON has no structured checks array.");

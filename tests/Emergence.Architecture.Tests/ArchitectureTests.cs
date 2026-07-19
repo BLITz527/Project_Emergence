@@ -297,6 +297,24 @@ public sealed class ArchitectureTests
         }
     }
 
+    [Fact]
+    public void Phase05RLockLeaseUsesExclusiveHandleAndOwnershipSafeCleanup()
+    {
+        string lease = File.ReadAllText(At("src/Emergence.Persistence/WorldPackages/WorldPackageLockLease.cs"));
+        string recovery = File.ReadAllText(At("src/Emergence.Persistence/WorldPackages/WorldPackageRecovery.cs"));
+
+        Assert.Contains("FileMode.OpenOrCreate", lease, StringComparison.Ordinal);
+        Assert.Contains("FileShare.None", lease, StringComparison.Ordinal);
+        Assert.Contains("FileOptions.DeleteOnClose", lease, StringComparison.Ordinal);
+        Assert.Contains("world-package.lock-contention", lease, StringComparison.Ordinal);
+        Assert.Contains("world-package.lock-cleanup-warning", lease, StringComparison.Ordinal);
+        Assert.DoesNotContain("FileMode.CreateNew", lease, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetLastWriteTime", lease, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetLastWriteTime", lease, StringComparison.Ordinal);
+        Assert.DoesNotContain("Thread.Sleep", lease, StringComparison.Ordinal);
+        Assert.DoesNotContain("WorldPackageLock.Delete", recovery, StringComparison.Ordinal);
+    }
+
     private static IEnumerable<string> ProjectReferences(string relativeProject)
     {
         XDocument document = XDocument.Load(At(relativeProject));

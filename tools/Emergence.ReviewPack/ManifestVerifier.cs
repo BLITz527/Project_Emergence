@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Xml.Linq;
 
 namespace Emergence.ReviewPack;
 
@@ -136,7 +137,7 @@ public static class ReviewPackVerifier
         VerificationResult integrity = ManifestIntegrityValidator.Validate(reviewRoot, manifest);
         List<string> errors = [.. integrity.Errors];
         if (manifest.SchemaVersion != 6 || manifest.Phase != Phase05EvidenceValidator.Phase)
-            errors.Add("The review pack is not a Phase 0.5 schema-6 pack.");
+            errors.Add("The review pack is not a Phase 0.5R schema-6 pack.");
         ValidateRequiredDocuments(reviewRoot, errors);
         ValidateDesignDigest(reviewRoot, manifest, errors);
         ValidateSourceListing(reviewRoot, errors);
@@ -164,9 +165,9 @@ public static class ReviewPackVerifier
         SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", requirePresentation: false);
         if (session.Status != EvidenceStatus.Passed || manifest.Session?.Status != EvidenceStatus.Passed || !Equivalent(session, manifest.Session)) errors.Add($"Phase 0.4R regression evidence is not passed or disagrees with the manifest: {session.Detail}");
         PersistenceEvidence persistence = Phase05EvidenceValidator.Evaluate(reviewRoot);
-        if (persistence.Status != EvidenceStatus.Passed || manifest.Persistence?.Status != EvidenceStatus.Passed || !Equivalent(persistence, manifest.Persistence)) errors.Add($"Phase 0.5 persistence evidence is not passed or disagrees with the manifest: {persistence.Detail}");
+        if (persistence.Status != EvidenceStatus.Passed || manifest.Persistence?.Status != EvidenceStatus.Passed || !Equivalent(persistence, manifest.Persistence)) errors.Add($"Phase 0.5R persistence evidence is not passed or disagrees with the manifest: {persistence.Detail}");
 
-        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5");
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5R");
         if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
         {
             errors.Add($"App evidence is not passed: {app.Detail}");
@@ -207,24 +208,28 @@ public static class ReviewPackVerifier
 
     private static void ValidateFeatureMetadata(string reviewRoot, ReviewManifest manifest, List<string> errors)
     {
-        const string parent = "edb6f24898453841a4ecf3283bdd114ccebc2167";
-        const string correction = "b2c6e61b2daac16e2ba0555d5f59c7d440c09cad";
-        const string originalCommit = "903e15ca60b9d7ba2513ace3468cd7691ec2d660";
+        const string acceptedMain = "edb6f24898453841a4ecf3283bdd114ccebc2167";
+        const string originalPhase05 = "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58";
         string path = Path.Combine(reviewRoot, "git", "feature-metadata.json");
         try
         {
             using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
             Dictionary<string, string> values = document.RootElement.EnumerateObject()
                 .ToDictionary(property => property.Name, property => property.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
-            string[] required = ["branch", "featureCommit", "featureSubject", "featureParent", "acceptedMainCommit", "acceptedCorrectionCommit", "originalPhase04Commit"];
-            if (!values.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(required)) errors.Add("Feature commit metadata has missing or unexpected fields.");
-            if (!values.TryGetValue("branch", out string? branch) || branch != "milestone-0-phase-0.5" || branch != manifest.GitBranch) errors.Add("Feature commit metadata has the wrong branch.");
-            if (!values.TryGetValue("featureCommit", out string? feature) || !feature.Equals(manifest.GitCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Feature metadata does not identify the reviewed commit.");
-            if (!values.TryGetValue("featureSubject", out string? subject) || subject != "M0 P0.5 coherent snapshots and atomic save load") errors.Add("Feature commit subject is wrong.");
-            if (!values.TryGetValue("featureParent", out string? featureParent) || !featureParent.Equals(parent, StringComparison.OrdinalIgnoreCase)) errors.Add("Feature commit is not directly based on accepted main.");
-            if (!values.TryGetValue("acceptedMainCommit", out string? main) || !main.Equals(parent, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted main commit metadata is wrong.");
-            if (!values.TryGetValue("acceptedCorrectionCommit", out string? acceptedCorrection) || !acceptedCorrection.Equals(correction, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted correction commit metadata is wrong.");
-            if (!values.TryGetValue("originalPhase04Commit", out string? original) || !original.Equals(originalCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Original Phase 0.4 commit metadata is wrong.");
+            string[] required =
+            [
+                "branch", "correctionCommit", "correctionSubject", "correctionParent", "acceptedMainCommit",
+                "originalPhase05Commit", "originalPhase05Subject", "originalPhase05Parent",
+            ];
+            if (!values.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(required)) errors.Add("Correction commit metadata has missing or unexpected fields.");
+            if (!values.TryGetValue("branch", out string? branch) || branch != "milestone-0-phase-0.5" || branch != manifest.GitBranch) errors.Add("Correction commit metadata has the wrong branch.");
+            if (!values.TryGetValue("correctionCommit", out string? correction) || !correction.Equals(manifest.GitCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Correction metadata does not identify the reviewed commit.");
+            if (!values.TryGetValue("correctionSubject", out string? correctionSubject) || correctionSubject != "M0 P0.5R make package locks crash recoverable") errors.Add("Correction commit subject is wrong.");
+            if (!values.TryGetValue("correctionParent", out string? correctionParent) || !correctionParent.Equals(originalPhase05, StringComparison.OrdinalIgnoreCase)) errors.Add("Correction commit is not directly after the original Phase 0.5 commit.");
+            if (!values.TryGetValue("acceptedMainCommit", out string? main) || !main.Equals(acceptedMain, StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted main commit metadata is wrong.");
+            if (!values.TryGetValue("originalPhase05Commit", out string? original) || !original.Equals(originalPhase05, StringComparison.OrdinalIgnoreCase)) errors.Add("Original Phase 0.5 commit metadata is wrong.");
+            if (!values.TryGetValue("originalPhase05Subject", out string? originalSubject) || originalSubject != "M0 P0.5 coherent snapshots and atomic save load") errors.Add("Original Phase 0.5 commit subject is wrong.");
+            if (!values.TryGetValue("originalPhase05Parent", out string? originalParent) || !originalParent.Equals(acceptedMain, StringComparison.OrdinalIgnoreCase)) errors.Add("Original Phase 0.5 commit is not directly based on accepted main.");
         }
         catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
         {
@@ -274,6 +279,58 @@ public static class ReviewPackVerifier
             {
                 errors.Add($"Manifest test outcome disagrees with TRX/coverage evidence for {recorded.Project}.");
             }
+        }
+        ValidateNamedLockTests(reviewRoot, errors);
+    }
+
+    private static void ValidateNamedLockTests(string reviewRoot, List<string> errors)
+    {
+        string trx = Path.Combine(
+            reviewRoot,
+            "tests",
+            "Emergence.Persistence.Tests",
+            "Emergence.Persistence.Tests.trx");
+        try
+        {
+            XDocument document = XDocument.Load(trx, LoadOptions.None);
+            string[] passed = document.Descendants()
+                .Where(static element => element.Name.LocalName == "UnitTestResult"
+                    && string.Equals((string?)element.Attribute("outcome"), "Passed", StringComparison.Ordinal))
+                .Select(static element => (string?)element.Attribute("testName") ?? string.Empty)
+                .ToArray();
+            string[] required =
+            [
+                "StaleEmptyLockDoesNotBlockSave",
+                "StaleArbitraryMetadataDoesNotBlockSave",
+                "StaleEmptyLockDoesNotBlockRecoverWithValidTarget",
+                "StaleTruncatedMetadataDoesNotBlockRecover",
+                "StaleLockWithMissingTargetAppliesRecoveryCandidateTable",
+                "StaleLockWithInvalidTargetQuarantinesAndUsesValidCandidate",
+                "CrashLikeStaleLockDoesNotHideOrDeleteRecoveryEvidence",
+                "ActiveExclusiveOwnerBlocksSaveWithoutMutatingPackageOrSidecars",
+                "ActiveExclusiveOwnerBlocksRecoverWithoutMutatingPackageOrSidecars",
+                "ReleasedOwnerWithRemainingLockPathAllowsSaveReacquisition",
+                "ReleasedOwnerWithRemainingLockPathAllowsRecoverReacquisition",
+                "CoordinatedAcquisitionsProduceExactlyOneOwnerWithoutTimingSleeps",
+                "ReleasedLeaseCannotDeleteSuccessorLease",
+                "CommittedSaveCleanupWarningPreservesSuccessIdentityManifestAndBytes",
+                "SuccessfulRecoveryCleanupWarningPreservesRecoveredStatus",
+            ];
+            foreach (string name in required)
+            {
+                if (!passed.Any(test => test.Contains(name, StringComparison.Ordinal)))
+                    errors.Add($"Persistence TRX is missing the required passed lock regression '{name}'.");
+            }
+
+            int stale = passed.Count(static test => test.Contains("Stale", StringComparison.Ordinal));
+            int active = passed.Count(static test => test.Contains("ActiveExclusiveOwner", StringComparison.Ordinal));
+            int cleanup = passed.Count(static test => test.Contains("CleanupWarning", StringComparison.Ordinal));
+            if (stale < 9 || active < 2 || cleanup < 2)
+                errors.Add($"Named lock regression semantic totals are incomplete: stale={stale}, active={active}, cleanup={cleanup}; required at least 9/2/2.");
+        }
+        catch (Exception exception) when (exception is IOException or System.Xml.XmlException or InvalidOperationException)
+        {
+            errors.Add($"Named lock regression evidence is invalid: {exception.Message}");
         }
     }
 
@@ -477,7 +534,9 @@ public static class ReviewPackVerifier
         && left.ContinuationEventIds.SequenceEqual(right.ContinuationEventIds, StringComparer.Ordinal)
         && left.FinalStateDigest == right.FinalStateDigest && left.PersistenceTraceDigest == right.PersistenceTraceDigest
         && left.RecoveryScenarioCount == right.RecoveryScenarioCount && left.RecoveryScenarioPassed == right.RecoveryScenarioPassed
+        && left.LockCheckCount == right.LockCheckCount && left.LockCheckPassed == right.LockCheckPassed
         && left.AppRoundTripValid == right.AppRoundTripValid && left.PackagedRoundTripValid == right.PackagedRoundTripValid
+        && left.AppStaleLockValid == right.AppStaleLockValid && left.PackagedStaleLockValid == right.PackagedStaleLockValid
         && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
 }
 

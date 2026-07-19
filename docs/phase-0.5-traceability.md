@@ -1,4 +1,4 @@
-# Phase 0.5 implementation traceability
+# Phase 0.5R implementation traceability
 
 | Requirement | Source types/components | Automated evidence | Locked/operational evidence | Status |
 |---|---|---|---|---|
@@ -12,9 +12,11 @@
 | Three-entry package | `WorldPackageReader`, manifest/document models | entry/path/link/size/Unicode/schema/hash/cross-document adversarial tests | package identity `fcfab8b4e95de5f578330eb0d599e8759ebb62ca6fc37210f36197a88927c3d1` | Implemented |
 | Atomic writer | `WorldPackageWriter`, fault injector | all writer fault points, valid-target preservation, staging validation | `.writing`, `.previous`, `.lock` cleanup | Implemented |
 | Deterministic recovery | `WorldPackageRecovery` | decision-table scenarios, quarantine/conflicts/no-candidate | persistence self-test 5/5 | Implemented |
+| Crash-recoverable lock ownership | `WorldPackageLockLease` | stale empty/arbitrary/truncated lock, coordinated ownership, active Save/Recover contention, release/reacquisition | exclusive OS handle is authoritative; file existence/PID/time are not | Implemented in 0.5R |
+| Ownership-safe cleanup outcome | `WorldPackageLockLease.Release`, Save/Recovery result issue composition | idempotent release, successor protection, injected cleanup warning after committed Save/recovery | committed identity/manifest/bytes and recovered status retained | Implemented in 0.5R |
 | RNG continuation | root seed and exact catalog/ruleset identity | before/after addressed sample equality | `rngContinuationMatched=true` | Implemented |
 | CLI | `persistence-self-test`, `world-package` commands | stdout/file/usage/corrupt inputs | trace `b527e3355bc94f2eef586214f7ecf841b968c380b7427250c7fa06216aae8d0e` | Implemented |
-| App/package | `MainShell`, App doctor, package scripts | save/load preserves old session on failure; doctor checks | `user://saves/foundation-session.emergence-world`; no background execution | Implemented |
-| Independent review | `Phase05EvidenceValidator`, schema-6 verifier | renamed ZIP, extra entry, tampered vector/extraction/inventory/recovery/App/package tests | exact outer manifest and extracted package evidence | Implemented |
+| App/package | `MainShell`, App doctor, package scripts | save/load preserves old session on failure; isolated stale-lock Save/Recover probe; doctor checks | `user://saves/foundation-session.emergence-world`; no background execution | Implemented |
+| Independent review | `Phase05EvidenceValidator`, schema-6 verifier | correction ancestry, named lock regressions, CLI/App/package stale-lock evidence, renamed ZIP, extra entry, tampered vector/extraction/inventory tests | exact outer manifest and extracted package evidence | Implemented |
 
-All Phase 0.1-0.4R vectors remain regression requirements. Event history is not persisted. Systems/processors are reattached code. No migration, branching, rollback, Phase 1 field, or biological data is implemented.
+All Phase 0.1-0.5 vectors remain exact regression requirements. Lock metadata does not enter a digest and no timestamp selects ownership or a recovery candidate. Event history is not persisted. Systems/processors are reattached code. No migration, branching, rollback, Phase 1 field, or biological data is implemented.

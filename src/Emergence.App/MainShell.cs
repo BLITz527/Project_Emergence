@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Emergence.Foundation;
 using Emergence.Foundation.Randomness;
 using Emergence.Foundation.Results;
@@ -35,6 +36,16 @@ public partial class MainShell : Control
             SaveSession();
             VerifySave();
             LoadSession();
+            int readyIndex = Array.IndexOf(arguments, "--qa-ready-file");
+            if (readyIndex >= 0 && readyIndex + 1 < arguments.Length)
+            {
+                string readyPath = Path.GetFullPath(arguments[readyIndex + 1]);
+                Directory.CreateDirectory(Path.GetDirectoryName(readyPath)!);
+                File.WriteAllText(
+                    readyPath,
+                    "PROJECT_EMERGENCE_SAVE_LOAD_QA_READY\n",
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            }
         }
     }
 
@@ -92,7 +103,7 @@ public partial class MainShell : Control
         layout.AddThemeConstantOverride("separation", 9);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.5", 14, accent);
+        Label eyebrow = Label("FOUNDATION / M0.5R", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
@@ -251,7 +262,7 @@ public partial class MainShell : Control
             "phase.identity",
             DiagnosticSeverity.Success,
             "Persistence evidence phase",
-            "M0 Phase 0.5"));
+            "M0 Phase 0.5R"));
         checks.Add(new DiagnosticCheck(
             "runtime.godot",
             DiagnosticSeverity.Success,
@@ -328,10 +339,15 @@ public partial class MainShell : Control
     {
         string directory = ProjectSettings.GlobalizePath("user://diagnostics");
         string packagePath = Path.Combine(directory, "app-doctor.emergence-world");
+        string staleLockDirectory = Path.Combine(directory, "stale-lock-probe");
+        string staleLockPackagePath = Path.Combine(staleLockDirectory, "app-doctor-stale.emergence-world");
         Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(staleLockDirectory);
         CleanupPackageArtifacts(packagePath);
+        CleanupPackageArtifacts(staleLockPackagePath);
         bool success = false;
         bool rngMatch = false;
+        bool staleLockReacquired = false;
         bool sidecarsClean;
         string detail;
         try
@@ -350,6 +366,14 @@ public partial class MainShell : Control
             string after = new DeterministicAddressedRng(restored.Value.Definition.RootSeed, restored.Value.Definition.SelectedRuleset.RngDomains).GenerateBlock(address).ToString();
             rngMatch = before == after;
             success = restored.Value.StateDigest == session.StateDigest && rngMatch && !load.Document.Snapshot.FaultIssues.Any();
+
+            File.WriteAllBytes(staleLockPackagePath + ".lock", [0xff, 0x00, 0x80]);
+            WorldPackageSaveResult staleSave = new WorldPackageWriter().Save(staleLockPackagePath, capture.Value);
+            File.WriteAllBytes(staleLockPackagePath + ".lock", [0x50, 0x45, 0x00]);
+            RecoveryResult staleRecovery = new WorldPackageRecovery().Recover(staleLockPackagePath);
+            staleLockReacquired = staleSave.Success
+                && staleRecovery.Success
+                && !File.Exists(staleLockPackagePath + ".lock");
             detail = $"state={restored.Value.StateDigest};package={load.Document.Manifest.PackageIdentityDigest}";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
@@ -359,10 +383,20 @@ public partial class MainShell : Control
         finally
         {
             CleanupPackageArtifacts(packagePath);
-            sidecarsClean = PackageArtifactPaths(packagePath).All(path => !File.Exists(path));
+            CleanupPackageArtifacts(staleLockPackagePath);
+            sidecarsClean = PackageArtifactPaths(packagePath).All(path => !File.Exists(path))
+                && PackageArtifactPaths(staleLockPackagePath).All(path => !File.Exists(path));
+            try
+            {
+                if (Directory.Exists(staleLockDirectory)
+                    && !Directory.EnumerateFileSystemEntries(staleLockDirectory).Any())
+                    Directory.Delete(staleLockDirectory);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         }
         checks.Add(new DiagnosticCheck("persistence.round-trip", success ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App save/load round trip", detail));
         checks.Add(new DiagnosticCheck("persistence.rng-continuation", rngMatch ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App addressed RNG continuation", rngMatch.ToString().ToLowerInvariant()));
+        checks.Add(new DiagnosticCheck("persistence.stale-lock", staleLockReacquired ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App stale-lock save/recovery reacquisition", staleLockReacquired.ToString().ToLowerInvariant()));
         checks.Add(new DiagnosticCheck("persistence.sidecars", sidecarsClean ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App temporary sidecar cleanup", sidecarsClean ? "none" : "sidecar remains"));
     }
 
