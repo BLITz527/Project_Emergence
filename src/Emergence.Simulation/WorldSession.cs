@@ -11,24 +11,40 @@ namespace Emergence.Simulation;
 /// <summary>Mutable authoritative session state with single-threaded ownership.</summary>
 public sealed class WorldSession
 {
-    public const string StateDigestDomainMarker = "ProjectEmergence.WorldSessionState.v1";
+    public const string StateDigestDomainMarker = WorldSessionStateFingerprint.DigestDomainMarker;
     public const string EventIdDomainMarker = "ProjectEmergence.EventId.v1";
 
     private readonly int _ownerThreadId;
     private readonly CommandProcessorRegistry _commandProcessors;
     private readonly Dictionary<SimulationSystemId, ISimulationSystem> _systems;
     private readonly List<AcceptedSessionCommand> _pendingCommands = [];
-    private readonly CheckedSequenceCounter _commandSequences = new();
-    private readonly CheckedSequenceCounter _eventSequences = new();
+    private readonly CheckedSequenceCounter _commandSequences;
+    private readonly CheckedSequenceCounter _eventSequences;
     private ReadOnlyCollection<FoundationIssue> _faultIssues = Array.AsReadOnly(Array.Empty<FoundationIssue>());
     private int _stepping;
     private int _transactionViolation;
 
     public WorldSession(WorldSessionDefinition definition, IEnumerable<ISimulationSystem> systems, CommandProcessorRegistry commandProcessors)
+        : this(definition, systems, commandProcessors, default, WorldSessionStatus.Paused, default, default, [], [])
+    {
+    }
+
+    private WorldSession(
+        WorldSessionDefinition definition,
+        IEnumerable<ISimulationSystem> systems,
+        CommandProcessorRegistry commandProcessors,
+        SimulationTick currentTick,
+        WorldSessionStatus status,
+        SequenceNumber lastCommandSequence,
+        SequenceNumber lastEventSequence,
+        IEnumerable<AcceptedSessionCommand> pendingCommands,
+        IEnumerable<FoundationIssue> faultIssues)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         ArgumentNullException.ThrowIfNull(systems);
         _commandProcessors = commandProcessors ?? throw new ArgumentNullException(nameof(commandProcessors));
+        if (definition.IsSaveable && !definition.CommandProcessorCatalog!.Equals(commandProcessors.Catalog))
+            throw new ArgumentException("Command processor registry must exactly match the session definition catalog.", nameof(commandProcessors));
         ISimulationSystem?[] source = systems.Cast<ISimulationSystem?>().ToArray();
         if (source.Any(static item => item is null)) throw new ArgumentException("Simulation systems cannot contain null.", nameof(systems));
         ISimulationSystem[] registered = source.Select(static item => item!).OrderBy(static item => item.Descriptor.Id).ToArray();
@@ -41,8 +57,15 @@ public sealed class WorldSession
         }
         _systems = registered.ToDictionary(static item => item.Descriptor.Id);
         _ownerThreadId = Environment.CurrentManagedThreadId;
-        CurrentTick = default;
-        Status = WorldSessionStatus.Paused;
+        _commandSequences = new CheckedSequenceCounter(lastCommandSequence);
+        _eventSequences = new CheckedSequenceCounter(lastEventSequence);
+        ArgumentNullException.ThrowIfNull(pendingCommands);
+        _pendingCommands.AddRange(pendingCommands);
+        _pendingCommands.Sort(AcceptedCommandComparer.Instance);
+        ArgumentNullException.ThrowIfNull(faultIssues);
+        _faultIssues = Array.AsReadOnly(faultIssues.ToArray());
+        CurrentTick = currentTick;
+        Status = status;
     }
 
     public WorldSessionDefinition Definition { get; }
@@ -52,7 +75,81 @@ public sealed class WorldSession
     public SequenceNumber LastEventSequence => _eventSequences.LastIssued;
     public IReadOnlyList<AcceptedSessionCommand> PendingCommands => Array.AsReadOnly(_pendingCommands.ToArray());
     public IReadOnlyList<FoundationIssue> FaultIssues => _faultIssues;
-    public Sha256Digest StateDigest => ComputeStateDigest(CurrentTick, Status, LastCommandSequence, LastEventSequence, _pendingCommands, _faultIssues);
+    public Sha256Digest StateDigest => WorldSessionStateFingerprint.Compute(Definition, CurrentTick, Status, LastCommandSequence, LastEventSequence, _pendingCommands, _faultIssues);
+
+    public OperationResult<WorldSessionSnapshot> CaptureSnapshot()
+    {
+        if (!IsOwnerThread)
+            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.thread-ownership", IssueSeverity.Error, "Wrong session thread", "Only the owning thread may capture a session snapshot."));
+        if (Volatile.Read(ref _stepping) != 0)
+        {
+            Interlocked.Exchange(ref _transactionViolation, 1);
+            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.transaction-active", IssueSeverity.Critical, "Snapshot during active transaction", "Snapshot capture cannot inspect a session while StepOneTick is active."));
+        }
+        if (Status is not (WorldSessionStatus.Paused or WorldSessionStatus.Faulted))
+            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.status", IssueSeverity.Error, "Session is not persistable", "Only Paused or Faulted sessions can be captured."));
+        if (!Definition.IsSaveable)
+            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.definition-version", IssueSeverity.Error, "Session definition is not saveable", "Phase 0.5 saves require definition format 2.0.0."));
+
+        try
+        {
+            Sha256Digest before = StateDigest;
+            WorldSessionSnapshot snapshot = new(
+                Definition,
+                CurrentTick,
+                Status,
+                LastCommandSequence,
+                LastEventSequence,
+                _pendingCommands,
+                _faultIssues,
+                before);
+            Sha256Digest after = StateDigest;
+            if (before != after || snapshot.StateDigest != after)
+                return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.state-changed", IssueSeverity.Critical, "Snapshot state changed", "Authoritative state changed during snapshot capture."));
+            return OperationResult<WorldSessionSnapshot>.Succeeded(snapshot);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException)
+        {
+            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.validation", IssueSeverity.Error, "Snapshot validation failed", Normalize(exception)));
+        }
+    }
+
+    public static OperationResult<WorldSession> Restore(
+        WorldSessionSnapshot snapshot,
+        IEnumerable<ISimulationSystem> systems,
+        CommandProcessorRegistry commandProcessors)
+    {
+        if (snapshot is null)
+            return OperationResult<WorldSession>.Failed(Issue("restore.snapshot-null", IssueSeverity.Error, "Missing session snapshot", "A validated session snapshot is required."));
+        if (systems is null)
+            return OperationResult<WorldSession>.Failed(Issue("restore.systems-null", IssueSeverity.Error, "Missing simulation systems", "Explicit simulation systems are required."));
+        if (commandProcessors is null)
+            return OperationResult<WorldSession>.Failed(Issue("restore.processors-null", IssueSeverity.Error, "Missing command processors", "An explicit command processor registry is required."));
+
+        ISimulationSystem[] registered = systems.ToArray();
+        OperationResult compatibility = SessionCompatibilityValidator.Validate(snapshot, registered, commandProcessors);
+        if (!compatibility.Success) return OperationResult<WorldSession>.Failed(compatibility.Issues.ToArray());
+        try
+        {
+            WorldSession restored = new(
+                snapshot.Definition,
+                registered,
+                commandProcessors,
+                snapshot.CurrentTick,
+                snapshot.Status,
+                snapshot.LastCommandSequence,
+                snapshot.LastEventSequence,
+                snapshot.PendingCommands,
+                snapshot.FaultIssues);
+            if (restored.StateDigest != snapshot.StateDigest)
+                return OperationResult<WorldSession>.Failed(Issue("restore.state-digest", IssueSeverity.Critical, "Restored state mismatch", "The reconstructed session does not match the snapshot state digest."));
+            return OperationResult<WorldSession>.Succeeded(restored);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or OverflowException)
+        {
+            return OperationResult<WorldSession>.Failed(Issue("restore.validation", IssueSeverity.Error, "Session restoration failed", Normalize(exception)));
+        }
+    }
 
     public OperationResult Pause()
     {
@@ -219,7 +316,7 @@ public sealed class WorldSession
         SimulationTick nextTick = new(checked(CurrentTick.Value + UInt128.One));
         List<AcceptedSessionCommand> remaining = _pendingCommands.Where(command => !dueSequences.Contains(command.SequenceNumber)).ToList();
         SequenceNumber resultingEventSequence = committed.Count == 0 ? LastEventSequence : committed[^1].SequenceNumber;
-        Sha256Digest resultingDigest = ComputeStateDigest(nextTick, WorldSessionStatus.Ready, LastCommandSequence, resultingEventSequence, remaining, []);
+        Sha256Digest resultingDigest = WorldSessionStateFingerprint.Compute(Definition, nextTick, WorldSessionStatus.Ready, LastCommandSequence, resultingEventSequence, remaining, []);
 
         _pendingCommands.Clear();
         _pendingCommands.AddRange(remaining);
@@ -301,47 +398,6 @@ public sealed class WorldSession
         throw Failure("event.id-exhausted", "Event ID derivation exhausted", "All attempts produced an empty identifier.");
     }
 
-    private Sha256Digest ComputeStateDigest(
-        SimulationTick tick,
-        WorldSessionStatus status,
-        SequenceNumber lastCommand,
-        SequenceNumber lastEvent,
-        IReadOnlyList<AcceptedSessionCommand> pending,
-        IReadOnlyList<FoundationIssue> faults)
-    {
-        using CanonicalHashWriter writer = new();
-        writer.WriteString(StateDigestDomainMarker);
-        writer.WriteDigest(Definition.Digest);
-        writer.WriteUInt128(tick.Value);
-        writer.WriteString(status.ToString());
-        writer.WriteUInt128(lastCommand.Value);
-        writer.WriteUInt128(lastEvent.Value);
-        AcceptedSessionCommand[] ordered = pending.OrderBy(static command => command.ExecuteAtTick).ThenBy(static command => command.SequenceNumber).ToArray();
-        writer.WriteUInt64(checked((ulong)ordered.Length));
-        foreach (AcceptedSessionCommand command in ordered)
-        {
-            writer.WriteUInt128(command.SequenceNumber.Value);
-            writer.WriteUInt128(command.AcceptedAtTick.Value);
-            writer.WriteUInt128(command.ExecuteAtTick.Value);
-            writer.WriteString(command.CommandType.ToString());
-            writer.WriteDigest(command.Payload.Digest);
-        }
-        bool faulted = status == WorldSessionStatus.Faulted;
-        writer.WriteBoolean(faulted);
-        if (faulted)
-        {
-            writer.WriteUInt64(checked((ulong)faults.Count));
-            foreach (FoundationIssue issue in faults)
-            {
-                writer.WriteString(issue.Code.ToString());
-                writer.WriteString(issue.Severity.ToString());
-                writer.WriteString(issue.Summary);
-                writer.WriteString(issue.Detail);
-            }
-        }
-        return writer.FinalizeDigest();
-    }
-
     private TickExecutionReceipt Fault(IEnumerable<FoundationIssue> issues)
     {
         FoundationIssue[] copy = issues.ToArray();
@@ -357,6 +413,11 @@ public sealed class WorldSession
     private TickExecutionReceipt NonFaultFailure(FoundationIssue issue) => TickExecutionReceipt.Failed(Definition.Digest, CurrentTick, StateDigest, [issue]);
     private bool IsOwnerThread => Environment.CurrentManagedThreadId == _ownerThreadId;
     private static FoundationIssue Issue(string code, IssueSeverity severity, string summary, string detail) => new(new(code), severity, summary, detail);
+    private static string Normalize(Exception exception)
+    {
+        string text = exception.Message.Split(['\r', '\n'], 2)[0];
+        return text.Length <= 500 ? text : text[..500];
+    }
     private static SessionExecutionException Failure(string code, string summary, string detail) => new([Issue(code, IssueSeverity.Critical, summary, detail)]);
 
     private sealed class SessionExecutionException(IEnumerable<FoundationIssue> issues) : Exception

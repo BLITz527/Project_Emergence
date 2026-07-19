@@ -55,6 +55,18 @@ public sealed class AlgorithmCatalog : IEquatable<AlgorithmCatalog>
         AlgorithmReference.Parse("presentation.session-snapshot@1.0.0"),
     ]);
 
+    public static AlgorithmCatalog Phase05 { get; } = new(
+    [
+        .. Phase04.Entries,
+        AlgorithmReference.Parse("persistence.atomic-replace@1.0.0"),
+        AlgorithmReference.Parse("persistence.compatibility-check@1.0.0"),
+        AlgorithmReference.Parse("persistence.package-manifest@1.0.0"),
+        AlgorithmReference.Parse("persistence.recovery@1.0.0"),
+        AlgorithmReference.Parse("persistence.session-snapshot@1.0.0"),
+        AlgorithmReference.Parse("persistence.world-package@1.0.0"),
+        AlgorithmReference.Parse("simulation.session-restore@1.0.0"),
+    ]);
+
     public bool Equals(AlgorithmCatalog? other) => other is not null && _entries.SequenceEqual(other._entries);
     public override bool Equals(object? obj) => obj is AlgorithmCatalog other && Equals(other);
     public override int GetHashCode() => Digest.GetHashCode();
@@ -81,6 +93,14 @@ internal sealed class AlgorithmCatalogJsonConverter : JsonConverter<AlgorithmCat
     {
         using JsonDocument document = JsonDocument.ParseValue(ref reader);
         JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) throw new JsonException("Expected algorithm catalog object.");
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (JsonProperty property in root.EnumerateObject())
+        {
+            if (property.Name is not ("entries" or "digest") || !seen.Add(property.Name))
+                throw new JsonException($"Unexpected or duplicate property '{property.Name}'.");
+        }
+        if (seen.Count != 2) throw new JsonException("Algorithm catalog is missing required properties.");
         AlgorithmReference[] entries = root.GetProperty("entries").EnumerateArray().Select(element => AlgorithmReference.Parse(element.GetString()!)).ToArray();
         Sha256Digest digest = Sha256Digest.Parse(root.GetProperty("digest").GetString()!);
         return AlgorithmCatalog.CreateValidated(entries, digest);

@@ -16,6 +16,9 @@ namespace Emergence.Simulation;
 public static class FoundationSessionFixture
 {
     public const string ExpectedAlgorithmCatalogDigest = "bbaebfc88087fc04ab024d2505b9a50ed7e7a2f21cd34a18eb4e83d56cb1a418";
+    public const string ExpectedPhase05AlgorithmCatalogDigest = "78818c4c6a6a4aeb498a634e4cd77e5854c3fa35be2d075aabb888cb0fe7d9a1";
+    public const string ExpectedCommandProcessorCatalogDigest = "e2555f63b5b4c9644229336da1856f35c8dabf3cf54765e224d3c51e19a3d8f6";
+    public const string ExpectedPhase05DefinitionDigest = "ca024a17b1e0ee02b57d639bea1f57d0f04154e6c3da501fd24af0ebe9798e0e";
     public const string ExpectedSchedulerGraphDigest = "3ddcda2140c7fed29e2af548b8c71edf988c12a7f65ecdfd73d47c1bab33067a";
     public const string ExpectedDefinitionDigest = "fcc91152d376a93f558f44c2e76eb8493ab61fb519d598faa8782992d8cd3456";
     public const string Seed = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
@@ -41,10 +44,31 @@ public static class FoundationSessionFixture
         AlgorithmCatalog.Phase04,
         CreateGraph());
 
+    public static WorldSessionDefinition CreatePhase05Definition(RulesetRegistry registry)
+    {
+        CommandProcessorRegistry processors = CreateCommandProcessorRegistry();
+        return new WorldSessionDefinition(
+            new WorldIdentity(WorldId.FromUInt64(42)),
+            new BranchIdentity(WorldId.FromUInt64(42), BranchId.FromUInt64(7)),
+            new RulesetKey(RulesetId.FromUInt64(1), new(1, 0, 0)),
+            registry,
+            RngSeed256.Parse(Seed),
+            AlgorithmCatalog.Phase05,
+            CreateGraph(),
+            processors.Catalog);
+    }
+
     public static WorldSession CreatePausedSession(RulesetRegistry registry) => new(
         CreateDefinition(registry),
         CreateSystems(),
-        new CommandProcessorRegistry([new TraceCommandProcessor()]));
+        CreateCommandProcessorRegistry());
+
+    public static WorldSession CreatePhase05PausedSession(RulesetRegistry registry) => new(
+        CreatePhase05Definition(registry),
+        CreateSystems(),
+        CreateCommandProcessorRegistry());
+
+    public static CommandProcessorRegistry CreateCommandProcessorRegistry() => new([new TraceCommandProcessor()]);
 
     public static ImmutableConfiguration TracePayload(string message)
     {
@@ -55,7 +79,7 @@ public static class FoundationSessionFixture
             [new(new("trace.message"), ConfigurationValue.FromString(message))]);
     }
 
-    private static IReadOnlyList<ISimulationSystem> CreateSystems() =>
+    public static IReadOnlyList<ISimulationSystem> CreateSystems() =>
     [
         new TraceSystem(new(new("foundation.trace.command"), SimulationPhase.Commands, []), null),
         new TraceSystem(new(new("foundation.trace.prepare-a"), SimulationPhase.Prepare, []), "prepare-a"),

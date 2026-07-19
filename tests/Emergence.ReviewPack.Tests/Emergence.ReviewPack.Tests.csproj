@@ -9,6 +9,9 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <ProjectReference Include="../../tools/Emergence.ReviewPack/Emergence.ReviewPack.csproj" />
+    <ProjectReference Include="../../src/Emergence.Cli/Emergence.Cli.csproj" />
+    <ProjectReference Include="../../src/Emergence.Persistence/Emergence.Persistence.csproj" />
+    <ProjectReference Include="../../src/Emergence.Model/Emergence.Model.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

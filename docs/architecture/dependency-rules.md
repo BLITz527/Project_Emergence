@@ -1,18 +1,21 @@
 # Dependency rules
 
-The permitted source graph is:
+The permitted core graph is:
 
 ```text
 Foundation
-├─ Model ─┬─ Simulation ─ Presentation.Contracts
-│         ├─ Analytics
-│         └─ History
-├─ Persistence
-├─ Presentation.Contracts
-├─ Cli
-└─ App (Godot host)
+|- Model
+|  |- Simulation
+|  |- Analytics
+|  `- History
+|- Persistence (Foundation + Model)
+`- Presentation.Contracts (Foundation + Model)
+
+CLI/App compose the core projects; App alone references Godot.
 ```
 
-Model owns immutable session-domain contracts and references only Foundation. Simulation owns mutable `WorldSession` execution and references Foundation, Model, and the deliberate immutable presentation conversion contract. Presentation.Contracts references Foundation and Model but never Simulation or Godot. Analytics and History reference Foundation and Model. Persistence references Foundation only and owns untrusted ruleset filesystem loading; it defines no session save format.
+Model owns immutable definitions, snapshots, commands, events, scheduler contracts, and receipts and references only Foundation. Simulation owns mutable `WorldSession` execution, compatibility, capture, and restore and references Foundation, Model, and the immutable presentation conversion contract. Persistence references Foundation and Model: it parses/writes data documents but never depends on Simulation, callbacks, hosts, or Godot. Presentation.Contracts references Foundation and Model but never Simulation or Godot.
 
-CLI and App are outer hosts and may compose Model, Simulation, Persistence, and Presentation.Contracts. No non-App project can reference Godot; no core project can reference App; Foundation cannot reference Model or Simulation; Model cannot reference Simulation, Persistence, Presentation, Analytics, History, App, or Godot. Architecture tests allow-list package/project references and reject frame-driven stepping, reflection discovery, nondeterministic time/ID APIs, parallel scheduling, global current-session state, public mutable collections, save/load, and biological types.
+CLI and App are outer composition hosts. No non-App project may reference Godot; no core project may reference App; Foundation may not reference higher layers; Model may not reference Simulation or Persistence. Public Persistence APIs expose typed documents/results rather than arbitrary streams, byte arrays, runtime types, or serializers.
+
+Architecture tests allow-list references and reject frame-driven stepping, reflection discovery, nondeterministic time/ID APIs, parallel scheduling, global current-session state, public mutable collections, arbitrary object deserializers, unsafe polymorphic metadata, and biological types.

@@ -42,7 +42,11 @@ public static class Phase04EvidenceValidator
         ["tests/Emergence.Architecture.Tests/Emergence.Architecture.Tests.trx"] = ["ProductionCallbacksAreDocumentedAndStateless"],
     };
 
-    public static SessionEvidence Evaluate(string reviewRoot, string expectedCommit)
+    public static SessionEvidence Evaluate(
+        string reviewRoot,
+        string expectedCommit,
+        string expectedVersion = "0.4.0-dev",
+        bool requirePresentation = true)
     {
         const string dataRelative = "cli/session-self-test.json";
         const string logRelative = "cli/session-self-test.log";
@@ -73,7 +77,7 @@ public static class Phase04EvidenceValidator
             events = root.GetProperty("committedEvents").GetInt32();
             eventIds = root.GetProperty("eventIds").EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray();
             if (phase != CorrectionPhase) errors.Add($"Session phase mismatch: '{phase}'.");
-            if (version != "0.4.0-dev") errors.Add($"Session version mismatch: '{version}'.");
+            if (version != expectedVersion) errors.Add($"Session version mismatch: '{version}'.");
             if (!commit.Equals(expectedCommit, StringComparison.OrdinalIgnoreCase)) errors.Add($"Session reviewed commit mismatch: '{commit}'.");
             Require(algorithm, AlgorithmCatalogDigest, "algorithm catalog", errors);
             Require(graph, SchedulerGraphDigest, "scheduler graph", errors);
@@ -94,9 +98,12 @@ public static class Phase04EvidenceValidator
         if (!File.Exists(Resolve(reviewRoot, logRelative))) errors.Add("Session self-test log is missing.");
         ValidateCorrectionTests(reviewRoot, errors);
 
-        bool sourcePresentation = ValidateDoctor(Resolve(reviewRoot, appDoctorRelative), expectedCommit, errors, "source");
-        bool packagePresentation = ValidateDoctor(Resolve(reviewRoot, packageDoctorRelative), expectedCommit, errors, "packaged");
-        bool presentation = sourcePresentation && packagePresentation;
+        bool presentation = !requirePresentation
+            || (ValidateDoctor(Resolve(reviewRoot, appDoctorRelative), expectedCommit, errors, "source")
+                && ValidateDoctor(Resolve(reviewRoot, packageDoctorRelative), expectedCommit, errors, "packaged"));
+        string[] evidencePaths = requirePresentation
+            ? [dataRelative, logRelative, appDoctorRelative, packageDoctorRelative, .. RequiredCorrectionTests.Keys]
+            : [dataRelative, logRelative, .. RequiredCorrectionTests.Keys];
         return new SessionEvidence(
             "emergence session-self-test --json",
             errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed,
@@ -113,8 +120,8 @@ public static class Phase04EvidenceValidator
             events,
             Array.AsReadOnly(eventIds),
             presentation,
-            presentation ? "Paused@0" : string.Empty,
-            [dataRelative, logRelative, appDoctorRelative, packageDoctorRelative, .. RequiredCorrectionTests.Keys],
+            requirePresentation ? (presentation ? "Paused@0" : string.Empty) : "Superseded by Phase 0.5 shell; prior session vectors retained",
+            Array.AsReadOnly(evidencePaths),
             errors.Count == 0 ? "Phase 0.4R transaction, issue, receipt, session, event, state, and presentation evidence passed independent semantic validation." : string.Join(" ", errors));
     }
 

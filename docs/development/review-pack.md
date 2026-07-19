@@ -1,13 +1,14 @@
 # Review pack
 
-After post-commit evidence collection, `eng/review-pack.ps1` creates `C:\Dev\ReviewPacks\ProjectEmergence\M0_P0.4R_<UTC timestamp>` outside the repository.
+After post-commit evidence collection, `eng/review-pack.ps1` creates exactly one external `M0_P0.5R_<UTC timestamp>` directory under the chosen output root.
 
-Schema 5 retains structured session evidence alongside the build, RNG, ruleset, eight-test-project, App, and package outcomes. The verifier independently requires the Phase 0.4R identity and correction ancestry, focused transaction/IssueSeverity/receipt-binding TRX tests, exact digests/counters/all ten ordered EventIds, and fresh M0.4R source/package App evidence. It rejects stale Phase 0.4 substitution and contradictory reports.
+Schema 6 records build, all eight test projects, prior RNG/ruleset/session regression vectors, CLI, App, Windows package, and Phase 0.5R persistence/lock outcomes. It includes one valid `.emergence-world` fixture plus exact extracted `definition.json`, `snapshot.json`, `package-manifest.json`, and package-inventory evidence. The custom extension is explicitly allowed; nested `.zip`, `.7z`, `.rar`, `.tar`, and unrelated archives remain prohibited.
 
-Phase 0.1R protections remain: bidirectional exact file inventory, duplicate/unsafe/path-traversal rejection, no unlisted extras, no generated clutter or nested archives, source/design digests, semantic TRX counters, exact package manifest, App checks, and all 19 implementation-report headings.
+The independent verifier reopens the fixture, requires the exact ordered three entries, enforces bounded strict UTF-8/JSON and production semantic validation, recomputes hashes and lengths, validates all cross-document identities and unchanged locked vectors, checks extracted bytes, and then checks the package file itself through the outer exact manifest. It also validates exact TRX totals and coverage files, build metadata, source/design digests, the accepted-main/original-Phase-0.5/correction ancestry chain, named stale/active/cleanup regressions, CLI lock checks, App/package stale-lock probes, and all 19 report headings.
 
-Verify independently with:
+The verifier fails on missing or extra files, unsafe paths, duplicate/case-colliding entries, a renamed arbitrary ZIP, stale Phase 0.5 evidence labeled as Phase 0.5R, altered package documents, contradictory self-test/lock values, wrong correction ancestry, or failed recovery/App/package claims.
 
 ```powershell
+.\eng\review-pack.ps1 -OutputRoot C:\Dev\ReviewPacks\ProjectEmergence
 .\eng\verify-review-pack.ps1 -ManifestPath <review-pack>\MANIFEST.json
 ```

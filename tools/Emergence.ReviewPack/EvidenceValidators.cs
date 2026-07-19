@@ -5,7 +5,14 @@ namespace Emergence.ReviewPack;
 
 public static class AppEvidenceValidator
 {
-    public static AppEvidence Evaluate(string reviewRoot, string expectedCommit, string expectedFramework, string godotVersion)
+    public static AppEvidence Evaluate(
+        string reviewRoot,
+        string expectedCommit,
+        string expectedFramework,
+        string godotVersion,
+        string expectedVersion = "0.4.0-dev",
+        string expectedPhase = Phase04EvidenceValidator.CorrectionPhase,
+        string shellMarker = "FOUNDATION / M0.4R")
     {
         string loadRelative = "app/load.log";
         string smokeRelative = "app/smoke.log";
@@ -28,13 +35,13 @@ public static class AppEvidenceValidator
         RequireText(load, text => !text.Contains("ERROR:", StringComparison.OrdinalIgnoreCase), "source load log", errors);
         RequireText(smoke, text => text.Contains("PROJECT_EMERGENCE_SMOKE_OK", StringComparison.Ordinal), "source smoke marker", errors);
         RequireText(status, text => text.StartsWith("PASSED:", StringComparison.Ordinal), "App passed status", errors);
-        RequireText(manual, text => text.StartsWith("PASSED:", StringComparison.Ordinal) && text.Contains("FOUNDATION / M0.4R", StringComparison.Ordinal) && text.Contains("Paused tick 0", StringComparison.Ordinal) && text.Contains("no biological state", StringComparison.Ordinal), "manual launch status", errors);
+        RequireText(manual, text => text.StartsWith("PASSED:", StringComparison.Ordinal) && text.Contains(shellMarker, StringComparison.Ordinal) && text.Contains("Paused", StringComparison.Ordinal) && text.Contains("no biological state", StringComparison.Ordinal) && (expectedPhase != Phase05EvidenceValidator.Phase || text.Contains("verified", StringComparison.OrdinalIgnoreCase) || text.Contains("loaded", StringComparison.OrdinalIgnoreCase)), "manual launch status", errors);
         if (!File.Exists(screenshot) || new FileInfo(screenshot).Length == 0)
         {
             errors.Add("Normal-shell screenshot is missing or empty.");
         }
 
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.4.0-dev", requirePackagedLayout: false);
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, expectedVersion, requirePackagedLayout: false, expectedPhase);
         errors.AddRange(doctorSummary.Errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
         return new AppEvidence(
@@ -66,7 +73,12 @@ public static class AppEvidenceValidator
 
 public static class PackageEvidenceValidator
 {
-    public static PackageEvidence Evaluate(string reviewRoot, string expectedCommit, string expectedFramework)
+    public static PackageEvidence Evaluate(
+        string reviewRoot,
+        string expectedCommit,
+        string expectedFramework,
+        string expectedVersion = "0.4.0-dev",
+        string expectedPhase = Phase04EvidenceValidator.CorrectionPhase)
     {
         const string executableRelative = "package/windows-x86_64/ProjectEmergence.exe";
         const string statusRelative = "package/package-status.txt";
@@ -101,9 +113,12 @@ public static class PackageEvidenceValidator
         string sourceRuleset = Path.Combine(reviewRoot, "source", "rulesets", "foundation-reference.ruleset.json");
         if (!File.Exists(sourceRuleset) || !File.Exists(ruleset) || !string.Equals(EvidencePaths.HashFile(sourceRuleset), EvidencePaths.HashFile(ruleset), StringComparison.OrdinalIgnoreCase)) errors.Add("Packaged reference ruleset is not byte-equivalent to tracked source.");
         string managedRoot = Path.Combine(packageRoot, "data_Emergence.App_windows_x86_64");
-        foreach (string assembly in new[] { "Emergence.Model.dll", "Emergence.Simulation.dll", "Emergence.Presentation.Contracts.dll" })
+        string[] requiredAssemblies = expectedPhase == Phase05EvidenceValidator.Phase
+            ? ["Emergence.Model.dll", "Emergence.Simulation.dll", "Emergence.Persistence.dll", "Emergence.Presentation.Contracts.dll"]
+            : ["Emergence.Model.dll", "Emergence.Simulation.dll", "Emergence.Presentation.Contracts.dll"];
+        foreach (string assembly in requiredAssemblies)
             if (!File.Exists(Path.Combine(managedRoot, assembly))) errors.Add($"Required packaged assembly is missing: {assembly}.");
-        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, "0.4.0-dev", requirePackagedLayout: true);
+        DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, expectedVersion, requirePackagedLayout: true, expectedPhase);
         errors.AddRange(doctorSummary.Errors);
         int packageFileCount = ValidatePackageManifest(packageRoot, packageManifest, errors);
         EvidenceStatus evidenceStatus = errors.Count == 0 ? EvidenceStatus.Passed : EvidenceStatus.Failed;
@@ -195,7 +210,7 @@ internal sealed record DoctorSummary(string GitCommit, string TargetFramework, I
 
 internal static class DoctorEvidence
 {
-    public static DoctorSummary Read(string path, string expectedCommit, string expectedFramework, string expectedVersion, bool requirePackagedLayout)
+    public static DoctorSummary Read(string path, string expectedCommit, string expectedFramework, string expectedVersion, bool requirePackagedLayout, string expectedPhase = Phase04EvidenceValidator.CorrectionPhase)
     {
         List<string> errors = [];
         if (!File.Exists(path))
@@ -254,6 +269,10 @@ internal static class DoctorEvidence
             if (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                 || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
                 requiredChecks = [.. requiredChecks, "phase.identity", "runtime.godot", "ruleset.registry", "rng.algorithm", "rng.domains", "session.definition", "session.scheduler", "presentation.snapshot", "presentation.nonbiological", "presentation.no-mutation", "session.core-headless"];
+            if (expectedPhase == Phase05EvidenceValidator.Phase
+                && (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                    || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
+                requiredChecks = [.. requiredChecks, "persistence.round-trip", "persistence.rng-continuation", "persistence.stale-lock", "persistence.sidecars"];
             if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
             {
                 errors.Add("Doctor JSON has no structured checks array.");
@@ -266,7 +285,7 @@ internal static class DoctorEvidence
                     if (!checkArray.Any(check => check.TryGetProperty("id", out JsonElement checkId) && checkId.GetString() == id)) errors.Add($"Doctor JSON is missing required check '{id}'.");
                 }
                 JsonElement[] phaseChecks = checkArray.Where(check => check.TryGetProperty("id", out JsonElement checkId) && checkId.GetString() == "phase.identity").ToArray();
-                if (phaseChecks.Length > 0 && (phaseChecks.Length != 1 || !phaseChecks[0].TryGetProperty("detail", out JsonElement phaseDetail) || phaseDetail.GetString() != Phase04EvidenceValidator.CorrectionPhase)) errors.Add("Doctor JSON has stale correction phase identity.");
+                if (phaseChecks.Length > 0 && (phaseChecks.Length != 1 || !phaseChecks[0].TryGetProperty("detail", out JsonElement phaseDetail) || phaseDetail.GetString() != expectedPhase)) errors.Add("Doctor JSON has stale phase identity.");
                 if (checkArray.Any(check => check.TryGetProperty("severity", out JsonElement severity) && severity.GetString() == "Failure")) errors.Add("Doctor JSON contains a failed structured check.");
             }
             return new DoctorSummary(commit, framework, errors);
@@ -302,7 +321,9 @@ public static class ReviewPackFilters
         {
             return true;
         }
-        return ArchiveExtensions.Contains(Path.GetExtension(normalized));
+        string extension = Path.GetExtension(normalized);
+        if (extension.Equals(".emergence-world", StringComparison.OrdinalIgnoreCase)) return false;
+        return ArchiveExtensions.Contains(extension);
     }
 
     public static void CopyFilteredTree(string source, string destination)
