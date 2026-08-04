@@ -1,14 +1,17 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using Emergence.Foundation;
+using Emergence.Foundation.Fields;
 using Emergence.Foundation.Randomness;
 using Emergence.Foundation.Results;
 using Emergence.Foundation.Versioning;
 using Emergence.Model;
+using Emergence.Model.Environment;
 using Emergence.Persistence.Rulesets;
 using Emergence.Persistence.WorldPackages;
 using Emergence.Presentation.Contracts;
 using Emergence.Simulation;
+using Emergence.Simulation.Fields;
 using Godot;
 
 namespace Emergence.App;
@@ -20,6 +23,12 @@ public partial class MainShell : Control
     private WorldSession? _session;
     private SessionPresentationSnapshot? _snapshot;
     private Label? _packageStatus;
+    private FieldViewport? _fieldViewport;
+    private Label? _probeLabel;
+    private Label? _viewModeLabel;
+    private CheckButton? _rawGridToggle;
+    private EnvironmentPresentationSnapshot? _environmentSnapshot;
+    private FieldChannelId _selectedChannel = new(ReferenceEnvironmentDefinition.EnergySubstrateId);
     private string _savePath = string.Empty;
 
     public override void _Ready()
@@ -31,6 +40,7 @@ public partial class MainShell : Control
         }
 
         BuildShell();
+        if (arguments.Contains("--raw-grid", StringComparer.Ordinal)) SetRawGrid(true);
         if (arguments.Contains("--save-load-qa", StringComparer.Ordinal))
         {
             SaveSession();
@@ -103,11 +113,11 @@ public partial class MainShell : Control
         layout.AddThemeConstantOverride("separation", 9);
         margin.AddChild(layout);
 
-        Label eyebrow = Label("FOUNDATION / M0.5R", 14, accent);
+        Label eyebrow = Label("HABITAT / M1.1", 14, accent);
         layout.AddChild(eyebrow);
         Label title = Label("Project Emergence", 42, primary);
         layout.AddChild(title);
-        Label subtitle = Label("Milestone 0 — Coherent Snapshots and Save/Load", 20, muted);
+        Label subtitle = Label("Milestone 1 — Region and Environmental Field Lattice", 20, muted);
         layout.AddChild(subtitle);
 
         HSeparator separator = new();
@@ -117,9 +127,47 @@ public partial class MainShell : Control
         BuildDetails build = BuildInfo.Current;
         RulesetDirectoryLoadResult rulesets = LoadRulesets();
         bool sessionReady = TryCreateSessionSnapshot(rulesets, out _session, out _snapshot, out string sessionDetail);
-        _savePath = ProjectSettings.GlobalizePath("user://saves/foundation-session.emergence-world");
+        _savePath = ProjectSettings.GlobalizePath("user://saves/environment-session.emergence-world");
         Directory.CreateDirectory(Path.GetDirectoryName(_savePath)!);
+
+        HBoxContainer content = new();
+        content.SizeFlagsVertical = SizeFlags.ExpandFill;
+        content.AddThemeConstantOverride("separation", 24);
+        VBoxContainer fieldColumn = new();
+        fieldColumn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        fieldColumn.SizeFlagsVertical = SizeFlags.ExpandFill;
+        HBoxContainer fieldTools = new();
+        fieldTools.AddThemeConstantOverride("separation", 12);
+        fieldTools.AddChild(Label("FIELD CHANNEL", 12, muted));
+        OptionButton channelSelector = new();
+        channelSelector.AddItem("Energy substrate");
+        channelSelector.AddItem("Structural precursor");
+        channelSelector.AddItem("Waste");
+        channelSelector.ItemSelected += SelectChannel;
+        fieldTools.AddChild(channelSelector);
+        CheckButton rawGrid = new() { Text = "Raw grid" };
+        _rawGridToggle = rawGrid;
+        rawGrid.Toggled += SetRawGrid;
+        fieldTools.AddChild(rawGrid);
+        _viewModeLabel = Label("SMOOTH INTERPOLATED DISPLAY", 12, accent);
+        fieldTools.AddChild(_viewModeLabel);
+        fieldColumn.AddChild(fieldTools);
+        _fieldViewport = new FieldViewport
+        {
+            CustomMinimumSize = new Vector2(640, 360),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill,
+        };
+        _fieldViewport.CellSelected = SelectCell;
+        fieldColumn.AddChild(_fieldViewport);
+        _probeLabel = Label("Click the field for an exact authoritative cell sample.", 13, primary);
+        fieldColumn.AddChild(_probeLabel);
+        fieldColumn.AddChild(Label("Smooth color is interpolated for display. Diffusion, flow, and reactions are not active in Phase 1.1.", 12, muted));
+        content.AddChild(fieldColumn);
+
         GridContainer facts = new() { Columns = 2 };
+        facts.CustomMinimumSize = new Vector2(350, 0);
+        facts.SizeFlagsVertical = SizeFlags.ShrinkBegin;
         facts.AddThemeConstantOverride("h_separation", 32);
         facts.AddThemeConstantOverride("v_separation", 8);
         AddFact(facts, "BUILD", build.InformationalVersion, muted, primary);
@@ -127,12 +175,15 @@ public partial class MainShell : Control
         AddFact(facts, "GODOT", Engine.GetVersionInfo()["string"].AsString(), muted, primary);
         AddFact(facts, "RULESETS", IsExpectedRegistry(rulesets) ? $"1 validated · {rulesets.Registry!.Digest.ToString()[..12]}…" : "validation failed", muted, IsExpectedRegistry(rulesets) ? accent : new Color("e06c75"));
         AddFact(facts, "SESSION", sessionReady ? $"{_snapshot!.Status} · tick {_snapshot.Tick}" : sessionDetail, muted, sessionReady ? accent : new Color("e06c75"));
-        AddFact(facts, "STATE", sessionReady ? $"{_snapshot!.StateDigest.ToString()[..12]}… · no biological state" : "unavailable", muted, sessionReady ? accent : new Color("e06c75"));
+        AddFact(facts, "STATE", sessionReady ? $"{_snapshot!.StateDigest.ToString()[..12]}… · static fields" : "unavailable", muted, sessionReady ? accent : new Color("e06c75"));
+        AddFact(facts, "REGION", sessionReady ? "16 × 12 · 59 solid · 133 fluid" : "unavailable", muted, primary);
         AddFact(facts, "STATUS", sessionReady ? "Paused — logical time is not advancing" : "session validation failed", muted, sessionReady ? accent : new Color("e06c75"));
-        AddFact(facts, "SAVE", "user://saves/foundation-session.emergence-world", muted, primary);
-        layout.AddChild(facts);
+        AddFact(facts, "SAVE", "user://saves/environment-session.emergence-world", muted, primary);
+        content.AddChild(facts);
+        layout.AddChild(content);
+        if (sessionReady) RefreshEnvironmentView();
 
-        _statusLabel = Label("Nonbiological foundation only: no cells, fields, regions, or biological world state exist.", 15, muted);
+        _statusLabel = Label("Static nonbiological environment · exact matter amounts · no organisms or cells.", 15, muted);
         _statusLabel.CustomMinimumSize = new Vector2(0, 32);
         layout.AddChild(_statusLabel);
 
@@ -168,6 +219,45 @@ public partial class MainShell : Control
         quitButton.Pressed += () => GetTree().Quit();
         actions.AddChild(quitButton);
         layout.AddChild(actions);
+    }
+
+    private void SelectChannel(long index)
+    {
+        _selectedChannel = index switch
+        {
+            0 => new(ReferenceEnvironmentDefinition.EnergySubstrateId),
+            1 => new(ReferenceEnvironmentDefinition.StructuralPrecursorId),
+            2 => new(ReferenceEnvironmentDefinition.WasteId),
+            _ => _selectedChannel,
+        };
+        RefreshEnvironmentView();
+    }
+
+    private void SetRawGrid(bool enabled)
+    {
+        _rawGridToggle?.SetPressedNoSignal(enabled);
+        _fieldViewport?.SetRawGrid(enabled);
+        if (_viewModeLabel is not null)
+        {
+            _viewModeLabel.Text = enabled ? "DEBUG / AUTHORITATIVE SAMPLES" : "SMOOTH INTERPOLATED DISPLAY";
+            _viewModeLabel.AddThemeColorOverride("font_color", enabled ? new Color("f1d879") : new Color("54d6b0"));
+        }
+    }
+
+    private void RefreshEnvironmentView()
+    {
+        if (_session?.EnvironmentState is null || _fieldViewport is null) return;
+        _environmentSnapshot = new EnvironmentPresentationSnapshotProducer().Create(_session, _selectedChannel);
+        _fieldViewport.SetSnapshot(_environmentSnapshot);
+        if (_probeLabel is not null)
+            _probeLabel.Text = $"{_selectedChannel} · total {_environmentSnapshot.SelectedChannelTotal} · fluid range {_environmentSnapshot.MinimumFluidAmount}–{_environmentSnapshot.MaximumFluidAmount}";
+    }
+
+    private void SelectCell(LatticeCoordinate coordinate)
+    {
+        if (_session is null || _probeLabel is null) return;
+        FieldProbePresentation probe = new EnvironmentPresentationSnapshotProducer().Probe(_session, coordinate, _selectedChannel);
+        _probeLabel.Text = $"AUTHORITATIVE CELL SAMPLE · ({coordinate.X}, {coordinate.Y}) · {(probe.IsSolid ? "SOLID" : "FLUID")} · raw {probe.RawAmount} · volume {probe.EffectiveVolume} · concentration {probe.DerivedConcentrationDisplay}";
     }
 
     private void SaveSession()
@@ -219,6 +309,7 @@ public partial class MainShell : Control
         SessionPresentationSnapshot candidateSnapshot = new SessionPresentationSnapshotProducer().Create(candidate);
         _session = candidate;
         _snapshot = candidateSnapshot;
+        RefreshEnvironmentView();
         SetPackageStatus($"Loaded {candidate.Status} state · tick {candidate.CurrentTick} · {candidate.StateDigest.ToString()[..12]}…", true);
     }
 
@@ -261,8 +352,8 @@ public partial class MainShell : Control
         checks.Add(new DiagnosticCheck(
             "phase.identity",
             DiagnosticSeverity.Success,
-            "Persistence evidence phase",
-            "M0 Phase 0.5R"));
+            "Environment evidence phase",
+            "Milestone 1 Phase 1.1"));
         checks.Add(new DiagnosticCheck(
             "runtime.godot",
             DiagnosticSeverity.Success,
@@ -288,11 +379,17 @@ public partial class MainShell : Control
             && session is not null && snapshot is not null)
         {
             string before = session.StateDigest.ToString();
+            string environmentBefore = session.EnvironmentState!.Digest.ToString();
             SessionPresentationSnapshot repeated = new SessionPresentationSnapshotProducer().Create(session);
+            EnvironmentPresentationSnapshot field = new EnvironmentPresentationSnapshotProducer().Create(
+                session, new(ReferenceEnvironmentDefinition.EnergySubstrateId));
+            FieldProbePresentation probe = new EnvironmentPresentationSnapshotProducer().Probe(
+                session, new(8, 6), new(ReferenceEnvironmentDefinition.EnergySubstrateId));
+            EnvironmentConservationAuditReport audit = new EnvironmentConservationAudit().Run(new WorldEnvironmentStore(session.EnvironmentState));
             string after = session.StateDigest.ToString();
             checks.Add(new DiagnosticCheck(
                 "session.definition",
-                session.Definition.Digest.ToString() == FoundationSessionFixture.ExpectedPhase05DefinitionDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                session.Definition.Digest.ToString() == EnvironmentSessionFixture.ExpectedDefinitionDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
                 "World-session definition",
                 session.Definition.Digest.ToString()));
             checks.Add(new DiagnosticCheck(
@@ -311,14 +408,36 @@ public partial class MainShell : Control
                 $"world={snapshot.WorldId};branch={snapshot.BranchId};tick={snapshot.Tick};status={snapshot.Status};definition={snapshot.SessionDefinitionDigest};state={snapshot.StateDigest}"));
             checks.Add(new DiagnosticCheck(
                 "presentation.nonbiological",
-                !snapshot.HasBiologicalState ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                !snapshot.HasBiologicalState && !field.HasBiologicalState ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
                 "Biological state declaration",
-                $"hasBiologicalState={snapshot.HasBiologicalState.ToString().ToLowerInvariant()}"));
+                $"session={snapshot.HasBiologicalState.ToString().ToLowerInvariant()};environment={field.HasBiologicalState.ToString().ToLowerInvariant()}"));
             checks.Add(new DiagnosticCheck(
                 "presentation.no-mutation",
-                before == after && repeated.StateDigest == snapshot.StateDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                before == after && environmentBefore == session.EnvironmentState!.Digest.ToString() && repeated.StateDigest == snapshot.StateDigest ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
                 "Snapshot creation preserves authoritative state",
                 $"before={before};after={after}"));
+            checks.Add(new DiagnosticCheck(
+                "environment.vectors",
+                field.EnvironmentStateDigest.ToString() == ReferenceEnvironmentFixture.ExpectedEnvironmentStateDigest
+                    && field.RegionStateDigest.ToString() == ReferenceEnvironmentFixture.ExpectedRegionStateDigest
+                    && field.SelectedChannelTotal == "183686" ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Static environmental field vectors",
+                $"environment={field.EnvironmentStateDigest};region={field.RegionStateDigest};total={field.SelectedChannelTotal}"));
+            checks.Add(new DiagnosticCheck(
+                "environment.probe",
+                probe.RawAmount.Quanta == 1410 && probe.EffectiveVolume.Quanta == 1024 ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Exact authoritative field probe",
+                $"cell=8,6;amount={probe.RawAmount};volume={probe.EffectiveVolume}"));
+            checks.Add(new DiagnosticCheck(
+                "environment.conservation",
+                audit.Success ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Exact environmental conservation audit",
+                string.Join(",", audit.Channels.Select(static channel => $"{channel.ChannelId}={channel.Total}"))));
+            checks.Add(new DiagnosticCheck(
+                "presentation.field-modes",
+                typeof(FieldViewport).BaseType == typeof(Control) ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure,
+                "Smooth and raw-grid rendering descriptors",
+                "normal=smooth-interpolated-no-grid;debug=authoritative-samples;nodes-per-cell=0"));
             bool headless = !typeof(WorldSession).Assembly.GetReferencedAssemblies().Any(static item => item.Name?.StartsWith("Godot", StringComparison.Ordinal) == true)
                 && !typeof(WorldSessionDefinition).Assembly.GetReferencedAssemblies().Any(static item => item.Name?.StartsWith("Godot", StringComparison.Ordinal) == true);
             checks.Add(new DiagnosticCheck(
@@ -347,6 +466,8 @@ public partial class MainShell : Control
         CleanupPackageArtifacts(staleLockPackagePath);
         bool success = false;
         bool rngMatch = false;
+        bool chunksMatch = false;
+        bool staticTick = false;
         bool staleLockReacquired = false;
         bool sidecarsClean;
         string detail;
@@ -366,6 +487,20 @@ public partial class MainShell : Control
             string after = new DeterministicAddressedRng(restored.Value.Definition.RootSeed, restored.Value.Definition.SelectedRuleset.RngDomains).GenerateBlock(address).ToString();
             rngMatch = before == after;
             success = restored.Value.StateDigest == session.StateDigest && rngMatch && !load.Document.Snapshot.FaultIssues.Any();
+            string[] expectedChunkHashes =
+            [
+                "e9c9f690eb5d36b9c2532e898dcf04307bfb30c107e61299402af7e64c6ea158",
+                "7aa20e39a5b11dbd6b66c0a63d626e9d7e6315f7f048e2574061faf0a0034767",
+                "eb9f89e0e1e9c9e2f78ac60db42e78d3d53a6d8c38c0971c2dc9c899996731bd",
+                "74426508ec8e95f63a073abdf9a78cfb0e1ddb234a13e9ecb1aa86e5f2c2b427",
+            ];
+            WorldPackageFileEntry[] fieldEntries = load.Document.Manifest.Entries.Where(static entry => entry.Path.EndsWith(".bin", StringComparison.Ordinal)).ToArray();
+            chunksMatch = fieldEntries.Length == 4 && fieldEntries.Select(static entry => entry.Sha256.ToString()).SequenceEqual(expectedChunkHashes);
+            string environmentBefore = restored.Value.EnvironmentState!.Digest.ToString();
+            staticTick = restored.Value.Resume().Success
+                && restored.Value.StepOneTick().Success
+                && restored.Value.Pause().Success
+                && restored.Value.EnvironmentState!.Digest.ToString() == environmentBefore;
 
             File.WriteAllBytes(staleLockPackagePath + ".lock", [0xff, 0x00, 0x80]);
             WorldPackageSaveResult staleSave = new WorldPackageWriter().Save(staleLockPackagePath, capture.Value);
@@ -395,6 +530,8 @@ public partial class MainShell : Control
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         }
         checks.Add(new DiagnosticCheck("persistence.round-trip", success ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App save/load round trip", detail));
+        checks.Add(new DiagnosticCheck("persistence.field-chunks", chunksMatch ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "V2 field chunk paths and hashes", chunksMatch.ToString().ToLowerInvariant()));
+        checks.Add(new DiagnosticCheck("environment.static-tick", staticTick ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "One tick preserves Phase 1.1 environment", staticTick.ToString().ToLowerInvariant()));
         checks.Add(new DiagnosticCheck("persistence.rng-continuation", rngMatch ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App addressed RNG continuation", rngMatch.ToString().ToLowerInvariant()));
         checks.Add(new DiagnosticCheck("persistence.stale-lock", staleLockReacquired ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App stale-lock save/recovery reacquisition", staleLockReacquired.ToString().ToLowerInvariant()));
         checks.Add(new DiagnosticCheck("persistence.sidecars", sidecarsClean ? DiagnosticSeverity.Success : DiagnosticSeverity.Failure, "App temporary sidecar cleanup", sidecarsClean ? "none" : "sidecar remains"));
@@ -441,10 +578,14 @@ public partial class MainShell : Control
         }
         try
         {
-            session = FoundationSessionFixture.CreatePhase05PausedSession(rulesets.Registry);
+            session = EnvironmentSessionFixture.CreatePausedSession(rulesets.Registry);
             snapshot = new SessionPresentationSnapshotProducer().Create(session);
-            detail = "paused nonbiological session ready";
-            return snapshot.Status == WorldSessionStatus.Paused && snapshot.Tick.Value == UInt128.Zero && !snapshot.HasBiologicalState;
+            EnvironmentPresentationSnapshot environment = new EnvironmentPresentationSnapshotProducer().Create(
+                session, new(ReferenceEnvironmentDefinition.EnergySubstrateId));
+            detail = "paused static nonbiological environment session ready";
+            return snapshot.Status == WorldSessionStatus.Paused && snapshot.Tick.Value == UInt128.Zero
+                && !snapshot.HasBiologicalState && !environment.HasBiologicalState
+                && environment.EnvironmentStateDigest.ToString() == ReferenceEnvironmentFixture.ExpectedEnvironmentStateDigest;
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {

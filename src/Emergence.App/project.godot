@@ -1,5 +1,5 @@
 ; Engine configuration file.
-; Project Emergence Phase 0.5 coherent-snapshot and save/load shell.
+; Project Emergence Milestone 1 Phase 1.1 static environmental field viewport.
 
 config_version=5
 
@@ -11,10 +11,10 @@ config/features=PackedStringArray("4.7", "C#")
 
 [display]
 
-window/size/viewport_width=1100
-window/size/viewport_height=700
-window/size/window_width_override=1100
-window/size/window_height_override=700
+window/size/viewport_width=1280
+window/size/viewport_height=820
+window/size/window_width_override=1280
+window/size/window_height_override=820
 window/stretch/mode="canvas_items"
 
 [dotnet]

@@ -170,6 +170,32 @@ public sealed record RulesetEvidence(
     IReadOnlyList<string> EvidencePaths,
     string Detail);
 
+public sealed record EnvironmentEvidence(
+    EvidenceStatus Status,
+    string FieldChannelCatalogDigest,
+    string RegionDefinitionDigest,
+    string RegionStateDigest,
+    string EnvironmentDefinitionDigest,
+    string EnvironmentStateDigest,
+    string AlgorithmCatalogDigest,
+    string SessionDefinitionDigest,
+    string SessionStateDigest,
+    string SnapshotDigest,
+    string PackageIdentityDigest,
+    string ManifestDigest,
+    int SolidCellCount,
+    int FluidCellCount,
+    IReadOnlyList<string> ChannelTotals,
+    IReadOnlyList<string> ChunkPaths,
+    int ChunkCount,
+    bool SaveLoadMatched,
+    bool StaticTickMatched,
+    bool IndependentReferenceMatched,
+    bool NormalScreenshotPresent,
+    bool RawGridScreenshotPresent,
+    IReadOnlyList<string> EvidencePaths,
+    string Detail);
+
 public sealed record ReviewFileEntry(string Path, long Bytes, string Sha256);
 
 public sealed record ReviewManifest(
@@ -199,7 +225,8 @@ public sealed record ReviewManifest(
     RngEvidence? Rng = null,
     RulesetEvidence? Rulesets = null,
     SessionEvidence? Session = null,
-    PersistenceEvidence? Persistence = null);
+    PersistenceEvidence? Persistence = null,
+    EnvironmentEvidence? Environment = null);
 
 public sealed record VerificationResult(
     bool Success,

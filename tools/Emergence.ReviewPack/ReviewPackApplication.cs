@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.Loader;
@@ -64,9 +65,9 @@ public static class ReviewPackApplication
         }
 
         string timestamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", System.Globalization.CultureInfo.InvariantCulture);
-        string reviewRoot = Path.Combine(outputRoot, $"M0_P0.5R_{timestamp}");
+        string reviewRoot = Path.Combine(outputRoot, $"M1_P1.1_{timestamp}");
         Directory.CreateDirectory(reviewRoot);
-        foreach (string directory in new[] { "git", "environment", "source", "tests", "build", "cli", "persistence", "app", "package", "docs" })
+        foreach (string directory in new[] { "git", "environment", "reference", "source", "tests", "build", "cli", "persistence", "app", "package", "docs" })
         {
             Directory.CreateDirectory(Path.Combine(reviewRoot, directory));
         }
@@ -79,13 +80,13 @@ public static class ReviewPackApplication
         Dictionary<string, string> featureMetadata = new(StringComparer.Ordinal)
         {
             ["branch"] = OneLine(branch.Output),
-            ["correctionCommit"] = OneLine(head.Output),
-            ["correctionSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
-            ["correctionParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
-            ["acceptedMainCommit"] = "edb6f24898453841a4ecf3283bdd114ccebc2167",
+            ["featureCommit"] = OneLine(head.Output),
+            ["featureSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "HEAD").Output),
+            ["featureParent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "HEAD^").Output),
+            ["baselineCommit"] = "6d51b8f36930600e6b5662e039f2e6a6a3d8627d",
+            ["baselineSubject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "6d51b8f36930600e6b5662e039f2e6a6a3d8627d").Output),
+            ["acceptedCorrectionCommit"] = "ba98387b4f4f1b6cb85a773e2c2beb974a464653",
             ["originalPhase05Commit"] = "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58",
-            ["originalPhase05Subject"] = OneLine(RunGit(repositoryRoot, "show", "-s", "--format=%s", "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58").Output),
-            ["originalPhase05Parent"] = OneLine(RunGit(repositoryRoot, "rev-parse", "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58^").Output),
         };
         Write(Path.Combine(reviewRoot, "git", "feature-metadata.json"), JsonSerializer.Serialize(featureMetadata, new JsonSerializerOptions { WriteIndented = true }));
 
@@ -115,17 +116,19 @@ public static class ReviewPackApplication
 
         CopyEvidence(repositoryRoot, reviewRoot);
         ExtractPersistenceEvidence(reviewRoot);
+        ExtractEnvironmentEvidence(reviewRoot);
         CopyReviewDocuments(repositoryRoot, reviewRoot);
         (string godotVersion, string godotPath, bool templates) = ReadPreflight(reviewRoot);
         string gitCommit = OneLine(head.Output);
         IReadOnlyList<TestEvidence> tests = ReadTests(reviewRoot);
-        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5R");
-        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", "0.5.0-dev", Phase05EvidenceValidator.Phase);
-        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
-        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", godotVersion, Phase11EvidenceValidator.Version, Phase11EvidenceValidator.Phase, Phase11EvidenceValidator.ShellMarker);
+        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, gitCommit, ".NETCoreApp,Version=v10.0", Phase11EvidenceValidator.Version, Phase11EvidenceValidator.Phase);
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, gitCommit, Phase11EvidenceValidator.Version, ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, gitCommit, Phase11EvidenceValidator.Version, ".NETCoreApp,Version=v10.0");
         (RngEvidence rng, RulesetEvidence rulesets) = Phase03EvidenceValidator.Evaluate(reviewRoot);
-        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, gitCommit, "0.5.0-dev", requirePresentation: false);
+        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, gitCommit, Phase11EvidenceValidator.Version, requirePresentation: false);
         PersistenceEvidence persistence = Phase05EvidenceValidator.Evaluate(reviewRoot);
+        EnvironmentEvidence environment = Phase11EvidenceValidator.Evaluate(reviewRoot);
         string designDigest = ReadDesignDigest(repositoryRoot);
         string sourceDigest = EvidencePaths.DigestTree(Path.Combine(reviewRoot, "source"));
         List<string> warnings = [];
@@ -151,15 +154,16 @@ public static class ReviewPackApplication
         if (rulesets.Status != EvidenceStatus.Passed) warnings.Add($"Required ruleset evidence is not passed: {rulesets.Detail}");
         if (session.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.4R regression evidence is not passed: {session.Detail}");
         if (persistence.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 0.5R persistence evidence is not passed: {persistence.Detail}");
+        if (environment.Status != EvidenceStatus.Passed) warnings.Add($"Required Phase 1.1 environment evidence is not passed: {environment.Detail}");
         if (string.IsNullOrWhiteSpace(designDigest))
         {
             warnings.Add("Imported design digest is missing.");
         }
 
         ReviewManifest seed = new(
-            6,
+            7,
             "Project Emergence",
-            Phase05EvidenceValidator.Phase,
+            Phase11EvidenceValidator.Phase,
             DateTime.UtcNow,
             repositoryRoot,
             reviewRoot,
@@ -183,7 +187,8 @@ public static class ReviewPackApplication
             rng,
             rulesets,
             session,
-            persistence);
+            persistence,
+            environment);
 
         Write(Path.Combine(reviewRoot, "README_REVIEW.md"), BuildReadme(seed));
         (IReadOnlyList<string> created, IReadOnlyList<string> modified) = FeatureFiles(repositoryRoot);
@@ -236,6 +241,7 @@ public static class ReviewPackApplication
             ("artifacts/cli", "cli"),
             ("artifacts/app", "app"),
             ("artifacts/package", "package"),
+            ("artifacts/reference", "reference"),
         ];
         foreach ((string source, string destination) in mappings)
         {
@@ -272,6 +278,60 @@ public static class ReviewPackApplication
         Write(Path.Combine(destination, "package-inventory.json"), JsonSerializer.Serialize(inventory, new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    private static void ExtractEnvironmentEvidence(string reviewRoot)
+    {
+        string packagePath = Path.Combine(reviewRoot, "cli", "environment-session.emergence-world");
+        if (!File.Exists(packagePath)) return;
+        string packageDestination = Path.Combine(reviewRoot, "environment", "package");
+        string chunksDestination = Path.Combine(reviewRoot, "environment", "chunks");
+        Directory.CreateDirectory(packageDestination);
+        List<object> reports = [];
+        using FileStream stream = new(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using ZipArchive archive = new(stream, ZipArchiveMode.Read, false, Encoding.UTF8);
+        foreach (ZipArchiveEntry entry in archive.Entries)
+        {
+            using Stream input = entry.Open();
+            using MemoryStream output = new();
+            input.CopyTo(output);
+            byte[] content = output.ToArray();
+            if (entry.FullName.EndsWith(".bin", StringComparison.Ordinal))
+            {
+                string target = Path.Combine(chunksDestination, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.WriteAllBytes(target, content);
+                reports.Add(DecodeChunkReport(entry.FullName, content));
+            }
+            else if (entry.FullName is "definition.json" or "snapshot.json" or "package-manifest.json")
+            {
+                File.WriteAllBytes(Path.Combine(packageDestination, entry.FullName), content);
+            }
+        }
+        Write(Path.Combine(reviewRoot, "environment", "decoded-chunks.json"), JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static object DecodeChunkReport(string path, byte[] content)
+    {
+        ReadOnlySpan<byte> span = content;
+        int offset = 32;
+        uint chunkX = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(offset, 4)); offset += 4;
+        uint chunkY = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(offset, 4)); offset += 4;
+        ushort width = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(offset, 2)); offset += 2;
+        ushort height = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(offset, 2)); offset += 2;
+        ushort channels = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(offset, 2));
+        return new
+        {
+            path,
+            magic = Encoding.ASCII.GetString(span[..16]),
+            chunkX,
+            chunkY,
+            width,
+            height,
+            channelCount = channels,
+            uncompressedByteLength = content.LongLength,
+            sha256 = Convert.ToHexStringLower(SHA256.HashData(content)),
+        };
+    }
+
     private static void CopyReviewDocuments(string repositoryRoot, string reviewRoot)
     {
         foreach (string directory in new[] { "architecture", "roadmap", "development", "design" })
@@ -280,7 +340,7 @@ public static class ReviewPackApplication
                 Path.Combine(repositoryRoot, "docs", directory),
                 Path.Combine(reviewRoot, "docs", directory));
         }
-        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md", "phase-0.3-traceability.md", "phase-0.4-traceability.md", "phase-0.5-traceability.md" })
+        foreach (string file in new[] { "phase-scope.md", "known-issues.md", "phase-0.2-traceability.md", "phase-0.3-traceability.md", "phase-0.4-traceability.md", "phase-0.5-traceability.md", "phase-1.1-traceability.md" })
         {
             string source = Path.Combine(repositoryRoot, "docs", file);
             string target = Path.Combine(reviewRoot, "docs", file);
@@ -347,7 +407,7 @@ public static class ReviewPackApplication
     }
 
     private static string BuildReadme(ReviewManifest manifest) =>
-        $"# Project Emergence M0 Phase 0.5R Review Pack\n\n" +
+        $"# Project Emergence M1 Phase 1.1 Review Pack\n\n" +
         $"Created UTC: {manifest.CreatedUtc:O}\n\n" +
         $"Reviewed commit: `{manifest.GitCommit}` on `{manifest.GitBranch}`; clean={manifest.GitClean}.\n\n" +
         $"Design archive SHA-256: `{manifest.DesignArchiveDigest}`.\n\n" +

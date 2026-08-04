@@ -3,6 +3,7 @@ using Emergence.Foundation.Randomness;
 using Emergence.Foundation.Results;
 using Emergence.Foundation.Time;
 using Emergence.Model;
+using Emergence.Model.Environment;
 
 namespace Emergence.Simulation;
 
@@ -10,7 +11,12 @@ public sealed class SimulationExecutionContext
 {
     private readonly ReadOnlyCollection<AcceptedSessionCommand> _dueCommands;
 
-    internal SimulationExecutionContext(WorldSessionDefinition definition, SimulationTick tick, SimulationPhase phase, IEnumerable<AcceptedSessionCommand> dueCommands)
+    internal SimulationExecutionContext(
+        WorldSessionDefinition definition,
+        SimulationTick tick,
+        SimulationPhase phase,
+        IEnumerable<AcceptedSessionCommand> dueCommands,
+        WorldEnvironmentState? environmentState = null)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         if (!Enum.IsDefined(phase)) throw new ArgumentOutOfRangeException(nameof(phase));
@@ -20,6 +26,9 @@ public sealed class SimulationExecutionContext
         Tick = tick;
         Phase = phase;
         _dueCommands = Array.AsReadOnly(commands);
+        if (definition.HasEnvironment != (environmentState is not null))
+            throw new ArgumentException("Execution environment must match the session definition.", nameof(environmentState));
+        EnvironmentState = environmentState?.Capture();
         Rng = new DeterministicAddressedRng(definition.RootSeed, definition.SelectedRuleset.RngDomains);
     }
 
@@ -28,6 +37,7 @@ public sealed class SimulationExecutionContext
     public SimulationPhase Phase { get; }
     public IReadOnlyList<AcceptedSessionCommand> DueCommands => _dueCommands;
     public DeterministicAddressedRng Rng { get; }
+    public WorldEnvironmentState? EnvironmentState { get; }
 }
 
 public sealed class SimulationSystemOutput

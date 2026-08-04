@@ -5,6 +5,8 @@ using Emergence.Foundation.Identifiers;
 using Emergence.Foundation.Results;
 using Emergence.Foundation.Time;
 using Emergence.Model;
+using Emergence.Model.Environment;
+using Emergence.Simulation.Fields;
 
 namespace Emergence.Simulation;
 
@@ -17,6 +19,7 @@ public sealed class WorldSession
     private readonly int _ownerThreadId;
     private readonly CommandProcessorRegistry _commandProcessors;
     private readonly Dictionary<SimulationSystemId, ISimulationSystem> _systems;
+    private readonly WorldEnvironmentStore? _environment;
     private readonly List<AcceptedSessionCommand> _pendingCommands = [];
     private readonly CheckedSequenceCounter _commandSequences;
     private readonly CheckedSequenceCounter _eventSequences;
@@ -25,7 +28,16 @@ public sealed class WorldSession
     private int _transactionViolation;
 
     public WorldSession(WorldSessionDefinition definition, IEnumerable<ISimulationSystem> systems, CommandProcessorRegistry commandProcessors)
-        : this(definition, systems, commandProcessors, default, WorldSessionStatus.Paused, default, default, [], [])
+        : this(definition, systems, commandProcessors, null, default, WorldSessionStatus.Paused, default, default, [], [])
+    {
+    }
+
+    public WorldSession(
+        WorldSessionDefinition definition,
+        IEnumerable<ISimulationSystem> systems,
+        CommandProcessorRegistry commandProcessors,
+        WorldEnvironmentStore environment)
+        : this(definition, systems, commandProcessors, environment, default, WorldSessionStatus.Paused, default, default, [], [])
     {
     }
 
@@ -33,6 +45,7 @@ public sealed class WorldSession
         WorldSessionDefinition definition,
         IEnumerable<ISimulationSystem> systems,
         CommandProcessorRegistry commandProcessors,
+        WorldEnvironmentStore? environment,
         SimulationTick currentTick,
         WorldSessionStatus status,
         SequenceNumber lastCommandSequence,
@@ -45,6 +58,16 @@ public sealed class WorldSession
         _commandProcessors = commandProcessors ?? throw new ArgumentNullException(nameof(commandProcessors));
         if (definition.IsSaveable && !definition.CommandProcessorCatalog!.Equals(commandProcessors.Catalog))
             throw new ArgumentException("Command processor registry must exactly match the session definition catalog.", nameof(commandProcessors));
+        if (definition.HasEnvironment)
+        {
+            _environment = environment ?? throw new ArgumentNullException(nameof(environment));
+            if (definition.EnvironmentDefinition is null || !definition.EnvironmentDefinition.Equals(_environment.Definition))
+                throw new ArgumentException("Environment store must exactly match the V3 session definition.", nameof(environment));
+        }
+        else if (environment is not null)
+        {
+            throw new ArgumentException("V1/V2 session definitions cannot own environment state.", nameof(environment));
+        }
         ISimulationSystem?[] source = systems.Cast<ISimulationSystem?>().ToArray();
         if (source.Any(static item => item is null)) throw new ArgumentException("Simulation systems cannot contain null.", nameof(systems));
         ISimulationSystem[] registered = source.Select(static item => item!).OrderBy(static item => item.Descriptor.Id).ToArray();
@@ -75,7 +98,11 @@ public sealed class WorldSession
     public SequenceNumber LastEventSequence => _eventSequences.LastIssued;
     public IReadOnlyList<AcceptedSessionCommand> PendingCommands => Array.AsReadOnly(_pendingCommands.ToArray());
     public IReadOnlyList<FoundationIssue> FaultIssues => _faultIssues;
-    public Sha256Digest StateDigest => WorldSessionStateFingerprint.Compute(Definition, CurrentTick, Status, LastCommandSequence, LastEventSequence, _pendingCommands, _faultIssues);
+    public WorldEnvironmentState? EnvironmentState => _environment?.Capture();
+    public Sha256Digest StateDigest => _environment is null
+        ? WorldSessionStateFingerprint.Compute(Definition, CurrentTick, Status, LastCommandSequence, LastEventSequence, _pendingCommands, _faultIssues)
+        : WorldSessionStateFingerprint.ComputeEnvironment(Definition, CurrentTick, Status, LastCommandSequence, LastEventSequence,
+            _pendingCommands, _faultIssues, _environment.Capture());
 
     public OperationResult<WorldSessionSnapshot> CaptureSnapshot()
     {
@@ -89,11 +116,12 @@ public sealed class WorldSession
         if (Status is not (WorldSessionStatus.Paused or WorldSessionStatus.Faulted))
             return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.status", IssueSeverity.Error, "Session is not persistable", "Only Paused or Faulted sessions can be captured."));
         if (!Definition.IsSaveable)
-            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.definition-version", IssueSeverity.Error, "Session definition is not saveable", "Phase 0.5 saves require definition format 2.0.0."));
+            return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.definition-version", IssueSeverity.Error, "Session definition is not saveable", "Supported saves require a V2 foundation or V3 environment definition."));
 
         try
         {
             Sha256Digest before = StateDigest;
+            WorldEnvironmentState? environment = _environment?.Capture();
             WorldSessionSnapshot snapshot = new(
                 Definition,
                 CurrentTick,
@@ -102,7 +130,8 @@ public sealed class WorldSession
                 LastEventSequence,
                 _pendingCommands,
                 _faultIssues,
-                before);
+                before,
+                environment);
             Sha256Digest after = StateDigest;
             if (before != after || snapshot.StateDigest != after)
                 return OperationResult<WorldSessionSnapshot>.Failed(Issue("snapshot.state-changed", IssueSeverity.Critical, "Snapshot state changed", "Authoritative state changed during snapshot capture."));
@@ -135,6 +164,7 @@ public sealed class WorldSession
                 snapshot.Definition,
                 registered,
                 commandProcessors,
+                snapshot.EnvironmentState is null ? null : new WorldEnvironmentStore(snapshot.EnvironmentState),
                 snapshot.CurrentTick,
                 snapshot.Status,
                 snapshot.LastCommandSequence,
@@ -224,7 +254,14 @@ public sealed class WorldSession
             if (due.Length > SessionTechnicalLimits.MaxCommandsPerTick)
                 return Fault([Issue("command.due-limit", IssueSeverity.Critical, "Due command limit exceeded", $"Tick {CurrentTick} has {due.Length} commands; limit is {SessionTechnicalLimits.MaxCommandsPerTick}.")]);
 
-            try { return ExecuteTransaction(due); }
+            try
+            {
+                Sha256Digest? environmentBefore = _environment?.Digest;
+                TickExecutionReceipt receipt = ExecuteTransaction(due);
+                if (environmentBefore.HasValue && _environment!.Digest != environmentBefore.Value)
+                    return Fault([Issue("environment.unexpected-mutation", IssueSeverity.Critical, "Environment changed during Phase 1.1 tick", "No environmental update algorithm exists in Phase 1.1.")]);
+                return receipt;
+            }
             catch (SessionExecutionException exception) { return Fault(exception.Issues); }
             catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
             {
@@ -243,8 +280,9 @@ public sealed class WorldSession
         List<SimulationSystemId> executedSystems = [];
         List<FoundationIssue> receiptIssues = [];
         HashSet<SequenceNumber> dueSequences = due.Select(static command => command.SequenceNumber).ToHashSet();
+        WorldEnvironmentState? environmentView = _environment?.Capture();
 
-        SimulationExecutionContext commandContext = new(Definition, CurrentTick, SimulationPhase.Commands, due);
+        SimulationExecutionContext commandContext = new(Definition, CurrentTick, SimulationPhase.Commands, due, environmentView);
         foreach (AcceptedSessionCommand command in due)
         {
             if (!_commandProcessors.TryGet(command.CommandType, out ISessionCommandProcessor? processor) || processor is null)
@@ -267,7 +305,7 @@ public sealed class WorldSession
         {
             SimulationExecutionContext context = phase == SimulationPhase.Commands
                 ? commandContext
-                : new SimulationExecutionContext(Definition, CurrentTick, phase, []);
+                : new SimulationExecutionContext(Definition, CurrentTick, phase, [], environmentView);
             foreach (SimulationSystemDescriptor descriptor in Definition.SchedulerGraph.GetSystems(phase))
             {
                 ISimulationSystem system = _systems[descriptor.Id];

@@ -67,6 +67,20 @@ public sealed class AlgorithmCatalog : IEquatable<AlgorithmCatalog>
         AlgorithmReference.Parse("simulation.session-restore@1.0.0"),
     ]);
 
+    public static AlgorithmCatalog Phase11 { get; } = new(
+    [
+        .. Phase05.Entries,
+        AlgorithmReference.Parse("environment.field-channel-catalog@1.0.0"),
+        AlgorithmReference.Parse("environment.region-lattice-definition@1.0.0"),
+        AlgorithmReference.Parse("environment.region-field-state@1.0.0"),
+        AlgorithmReference.Parse("environment.world-definition@1.0.0"),
+        AlgorithmReference.Parse("environment.world-state@1.0.0"),
+        AlgorithmReference.Parse("environment.field-chunk-binary@1.0.0"),
+        AlgorithmReference.Parse("simulation.environment-session-state@1.0.0"),
+        AlgorithmReference.Parse("persistence.environment-world-package@1.0.0"),
+        AlgorithmReference.Parse("presentation.field-surface@1.0.0"),
+    ]);
+
     public bool Equals(AlgorithmCatalog? other) => other is not null && _entries.SequenceEqual(other._entries);
     public override bool Equals(object? obj) => obj is AlgorithmCatalog other && Equals(other);
     public override int GetHashCode() => Digest.GetHashCode();

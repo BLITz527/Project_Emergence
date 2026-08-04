@@ -51,14 +51,14 @@ Invoke-PackagedMode -Name 'packaged-doctor' -Arguments @('--headless', '--', '--
 if (-not (Test-Path -LiteralPath $doctorJson -PathType Leaf)) { throw 'Packaged doctor did not produce JSON evidence.' }
 $doctorResult = Get-Content -LiteralPath $doctorJson -Raw | ConvertFrom-Json
 if (-not $doctorResult.success) { throw 'Packaged doctor JSON reports failure.' }
-$requiredSessionChecks = @('phase.identity', 'session.definition', 'session.scheduler', 'presentation.snapshot', 'presentation.nonbiological', 'presentation.no-mutation', 'session.core-headless', 'persistence.round-trip', 'persistence.rng-continuation', 'persistence.stale-lock', 'persistence.sidecars')
+$requiredSessionChecks = @('phase.identity', 'session.definition', 'session.scheduler', 'presentation.snapshot', 'presentation.nonbiological', 'presentation.no-mutation', 'session.core-headless', 'environment.vectors', 'environment.probe', 'environment.conservation', 'presentation.field-modes', 'persistence.round-trip', 'persistence.field-chunks', 'environment.static-tick', 'persistence.rng-continuation', 'persistence.stale-lock', 'persistence.sidecars')
 foreach ($checkId in $requiredSessionChecks) {
     $check = @($doctorResult.checks | Where-Object { $_.id -eq $checkId })
-    if ($check.Count -ne 1 -or $check[0].severity -ne 'Success') { throw "Packaged doctor is missing successful Phase 0.5R check: $checkId" }
+    if ($check.Count -ne 1 -or $check[0].severity -ne 'Success') { throw "Packaged doctor is missing successful Phase 1.1 check: $checkId" }
 }
 $phaseIdentity = @($doctorResult.checks | Where-Object { $_.id -eq 'phase.identity' })
-if ($phaseIdentity.Count -ne 1 -or $phaseIdentity[0].detail -ne 'M0 Phase 0.5R') { throw 'Packaged doctor has stale feature phase identity.' }
+if ($phaseIdentity.Count -ne 1 -or $phaseIdentity[0].detail -ne 'Milestone 1 Phase 1.1') { throw 'Packaged doctor has stale feature phase identity.' }
 Get-ChildItem -LiteralPath $package -File -Recurse | Sort-Object FullName |
     Select-Object @{Name='Path';Expression={$_.FullName.Substring($package.Length + 1).Replace('\','/')}}, Length, @{Name='Sha256';Expression={(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}} |
     ConvertTo-Json -Depth 4 | Out-File -FilePath (Join-Path $evidence 'package-manifest.json') -Encoding utf8
-'PASSED: packaged smoke and diagnostics exited 0.' | Out-File -FilePath (Join-Path $evidence 'package-status.txt') -Encoding utf8
+'PASSED: fresh Phase 1.1 packaged smoke, environment diagnostics, V2 field save/load, chunks, and stale-lock checks exited 0.' | Out-File -FilePath (Join-Path $evidence 'package-status.txt') -Encoding utf8

@@ -17,14 +17,14 @@ public static class AppEvidenceValidator
         string loadRelative = "app/load.log";
         string smokeRelative = "app/smoke.log";
         string doctorRelative = "app/doctor.json";
-        string screenshotRelative = "app/shell-screenshot.png";
+        string screenshotRelative = expectedPhase == Phase11EvidenceValidator.Phase ? "app/field-normal.png" : "app/shell-screenshot.png";
         string manualRelative = "app/manual-launch-status.txt";
         List<string> errors = [];
 
         string load = Path.Combine(reviewRoot, "app", "load.log");
         string smoke = Path.Combine(reviewRoot, "app", "smoke.log");
         string doctor = Path.Combine(reviewRoot, "app", "doctor.json");
-        string screenshot = Path.Combine(reviewRoot, "app", "shell-screenshot.png");
+        string screenshot = Path.Combine(reviewRoot, screenshotRelative.Replace('/', Path.DirectorySeparatorChar));
         string manual = Path.Combine(reviewRoot, "app", "manual-launch-status.txt");
         string status = Path.Combine(reviewRoot, "app", "app-status.txt");
 
@@ -39,6 +39,11 @@ public static class AppEvidenceValidator
         if (!File.Exists(screenshot) || new FileInfo(screenshot).Length == 0)
         {
             errors.Add("Normal-shell screenshot is missing or empty.");
+        }
+        if (expectedPhase == Phase11EvidenceValidator.Phase)
+        {
+            string rawGrid = Path.Combine(reviewRoot, "app", "field-raw-grid.png");
+            if (!File.Exists(rawGrid) || new FileInfo(rawGrid).Length == 0) errors.Add("Raw-grid field screenshot is missing or empty.");
         }
 
         DoctorSummary doctorSummary = DoctorEvidence.Read(doctor, expectedCommit, expectedFramework, expectedVersion, requirePackagedLayout: false, expectedPhase);
@@ -113,7 +118,7 @@ public static class PackageEvidenceValidator
         string sourceRuleset = Path.Combine(reviewRoot, "source", "rulesets", "foundation-reference.ruleset.json");
         if (!File.Exists(sourceRuleset) || !File.Exists(ruleset) || !string.Equals(EvidencePaths.HashFile(sourceRuleset), EvidencePaths.HashFile(ruleset), StringComparison.OrdinalIgnoreCase)) errors.Add("Packaged reference ruleset is not byte-equivalent to tracked source.");
         string managedRoot = Path.Combine(packageRoot, "data_Emergence.App_windows_x86_64");
-        string[] requiredAssemblies = expectedPhase == Phase05EvidenceValidator.Phase
+        string[] requiredAssemblies = expectedPhase is Phase05EvidenceValidator.Phase or Phase11EvidenceValidator.Phase
             ? ["Emergence.Model.dll", "Emergence.Simulation.dll", "Emergence.Persistence.dll", "Emergence.Presentation.Contracts.dll"]
             : ["Emergence.Model.dll", "Emergence.Simulation.dll", "Emergence.Presentation.Contracts.dll"];
         foreach (string assembly in requiredAssemblies)
@@ -273,6 +278,13 @@ internal static class DoctorEvidence
                 && (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                     || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
                 requiredChecks = [.. requiredChecks, "persistence.round-trip", "persistence.rng-continuation", "persistence.stale-lock", "persistence.sidecars"];
+            if (expectedPhase == Phase11EvidenceValidator.Phase
+                && (path.Contains($"{Path.DirectorySeparatorChar}app{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                    || path.Contains($"{Path.DirectorySeparatorChar}package{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)))
+                requiredChecks = [.. requiredChecks,
+                    "environment.vectors", "environment.probe", "environment.conservation", "presentation.field-modes",
+                    "persistence.round-trip", "persistence.field-chunks", "environment.static-tick",
+                    "persistence.rng-continuation", "persistence.stale-lock", "persistence.sidecars"];
             if (!root.TryGetProperty("checks", out JsonElement allChecks) || allChecks.ValueKind != JsonValueKind.Array)
             {
                 errors.Add("Doctor JSON has no structured checks array.");
@@ -317,7 +329,9 @@ public static class ReviewPackFilters
         {
             return true;
         }
-        if (segments.Any(segment => Guid.TryParse(segment, out _)))
+        bool requiredEnvironmentChunk = normalized.StartsWith("environment/chunks/regions/00000000000000000000000000000064/fields/", StringComparison.Ordinal)
+            && normalized.EndsWith(".bin", StringComparison.Ordinal);
+        if (!requiredEnvironmentChunk && segments.Any(segment => Guid.TryParse(segment, out _)))
         {
             return true;
         }

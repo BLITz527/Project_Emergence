@@ -5,6 +5,7 @@ using Emergence.Foundation.Identifiers;
 using Emergence.Foundation.Randomness;
 using Emergence.Foundation.Rulesets;
 using Emergence.Foundation.Versioning;
+using Emergence.Model.Environment;
 
 namespace Emergence.Model;
 
@@ -13,8 +14,10 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
 {
     public const string DigestDomainMarker = "ProjectEmergence.WorldSessionDefinition.v1";
     public const string V2DigestDomainMarker = "ProjectEmergence.WorldSessionDefinition.v2";
+    public const string V3DigestDomainMarker = "ProjectEmergence.WorldSessionDefinition.v3";
     public static SemanticVersion SupportedFormatVersion { get; } = new(1, 0, 0);
     public static SemanticVersion SaveableFormatVersion { get; } = new(2, 0, 0);
+    public static SemanticVersion EnvironmentFormatVersion { get; } = new(3, 0, 0);
     private readonly RulesetRegistry _registry;
 
     public WorldSessionDefinition(
@@ -25,7 +28,7 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
         RngSeed256 rootSeed,
         AlgorithmCatalog runtimeAlgorithms,
         SchedulerGraph schedulerGraph)
-        : this(worldIdentity, branchIdentity, rulesetKey, rulesetRegistry, rootSeed, runtimeAlgorithms, schedulerGraph, null, SupportedFormatVersion)
+        : this(worldIdentity, branchIdentity, rulesetKey, rulesetRegistry, rootSeed, runtimeAlgorithms, schedulerGraph, null, null, SupportedFormatVersion)
     {
     }
 
@@ -38,7 +41,22 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
         AlgorithmCatalog runtimeAlgorithms,
         SchedulerGraph schedulerGraph,
         CommandProcessorCatalog commandProcessorCatalog)
-        : this(worldIdentity, branchIdentity, rulesetKey, rulesetRegistry, rootSeed, runtimeAlgorithms, schedulerGraph, commandProcessorCatalog, SaveableFormatVersion)
+        : this(worldIdentity, branchIdentity, rulesetKey, rulesetRegistry, rootSeed, runtimeAlgorithms, schedulerGraph, commandProcessorCatalog, null, SaveableFormatVersion)
+    {
+    }
+
+    public WorldSessionDefinition(
+        WorldIdentity worldIdentity,
+        BranchIdentity branchIdentity,
+        RulesetKey rulesetKey,
+        RulesetRegistry rulesetRegistry,
+        RngSeed256 rootSeed,
+        AlgorithmCatalog runtimeAlgorithms,
+        SchedulerGraph schedulerGraph,
+        CommandProcessorCatalog commandProcessorCatalog,
+        EnvironmentDefinition environmentDefinition)
+        : this(worldIdentity, branchIdentity, rulesetKey, rulesetRegistry, rootSeed, runtimeAlgorithms, schedulerGraph,
+            commandProcessorCatalog, environmentDefinition, EnvironmentFormatVersion)
     {
     }
 
@@ -51,6 +69,7 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
         AlgorithmCatalog runtimeAlgorithms,
         SchedulerGraph schedulerGraph,
         CommandProcessorCatalog? commandProcessorCatalog,
+        EnvironmentDefinition? environmentDefinition,
         SemanticVersion formatVersion)
     {
         WorldIdentity = worldIdentity ?? throw new ArgumentNullException(nameof(worldIdentity));
@@ -77,6 +96,17 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
                 throw new ArgumentException("Runtime algorithms must exactly match the Phase 0.5 catalog.", nameof(runtimeAlgorithms));
             CommandProcessorCatalog = commandProcessorCatalog ?? throw new ArgumentNullException(nameof(commandProcessorCatalog));
             CommandProcessorCatalogDigest = CommandProcessorCatalog.Digest;
+        }
+        else if (formatVersion == EnvironmentFormatVersion)
+        {
+            if (!RuntimeAlgorithms.Equals(AlgorithmCatalog.Phase11) || RuntimeAlgorithms.Digest != AlgorithmCatalog.Phase11.Digest)
+                throw new ArgumentException("Runtime algorithms must exactly match the Phase 1.1 catalog.", nameof(runtimeAlgorithms));
+            CommandProcessorCatalog = commandProcessorCatalog ?? throw new ArgumentNullException(nameof(commandProcessorCatalog));
+            CommandProcessorCatalogDigest = CommandProcessorCatalog.Digest;
+            EnvironmentDefinition = environmentDefinition ?? throw new ArgumentNullException(nameof(environmentDefinition));
+            if (EnvironmentDefinition.Regions.Count != EnvironmentTechnicalLimits.MaxRegions)
+                throw new ArgumentException("Phase 1.1 requires exactly one environment region.", nameof(environmentDefinition));
+            EnvironmentDefinitionDigest = EnvironmentDefinition.Digest;
         }
         else
         {
@@ -107,8 +137,11 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
     public Sha256Digest SchedulerGraphDigest { get; }
     public CommandProcessorCatalog? CommandProcessorCatalog { get; }
     public Sha256Digest? CommandProcessorCatalogDigest { get; }
+    public EnvironmentDefinition? EnvironmentDefinition { get; }
+    public Sha256Digest? EnvironmentDefinitionDigest { get; }
     public Sha256Digest Digest { get; }
-    [JsonIgnore] public bool IsSaveable => FormatVersion == SaveableFormatVersion;
+    [JsonIgnore] public bool IsSaveable => FormatVersion is var format && (format == SaveableFormatVersion || format == EnvironmentFormatVersion);
+    [JsonIgnore] public bool HasEnvironment => FormatVersion == EnvironmentFormatVersion;
     internal RulesetRegistry RulesetRegistry => _registry;
 
     public bool Equals(WorldSessionDefinition? other) => other is not null
@@ -123,6 +156,8 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
         && SchedulerGraph.Equals(other.SchedulerGraph)
         && Equals(CommandProcessorCatalog, other.CommandProcessorCatalog)
         && CommandProcessorCatalogDigest == other.CommandProcessorCatalogDigest
+        && Equals(EnvironmentDefinition, other.EnvironmentDefinition)
+        && EnvironmentDefinitionDigest == other.EnvironmentDefinitionDigest
         && Digest == other.Digest;
 
     public override bool Equals(object? obj) => obj is WorldSessionDefinition other && Equals(other);
@@ -131,7 +166,8 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
     private Sha256Digest ComputeDigest()
     {
         using CanonicalHashWriter writer = new();
-        writer.WriteString(FormatVersion == SupportedFormatVersion ? DigestDomainMarker : V2DigestDomainMarker);
+        writer.WriteString(FormatVersion == SupportedFormatVersion ? DigestDomainMarker
+            : FormatVersion == SaveableFormatVersion ? V2DigestDomainMarker : V3DigestDomainMarker);
         writer.WriteString(FormatVersion.ToString());
         writer.WriteString(WorldIdentity.WorldId.ToString());
         writer.WriteString(BranchIdentity.BranchId.ToString());
@@ -141,7 +177,8 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
         writer.WriteBytes(RootSeed.ToByteArray());
         writer.WriteDigest(RuntimeAlgorithms.Digest);
         writer.WriteDigest(SchedulerGraphDigest);
-        if (FormatVersion == SaveableFormatVersion) writer.WriteDigest(CommandProcessorCatalogDigest!.Value);
+        if (FormatVersion != SupportedFormatVersion) writer.WriteDigest(CommandProcessorCatalogDigest!.Value);
+        if (FormatVersion == EnvironmentFormatVersion) writer.WriteDigest(EnvironmentDefinitionDigest!.Value);
         return writer.FinalizeDigest();
     }
 
@@ -155,10 +192,12 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
         AlgorithmCatalog runtimeAlgorithms,
         SchedulerGraph schedulerGraph,
         CommandProcessorCatalog? commandProcessorCatalog,
+        EnvironmentDefinition? environmentDefinition,
         Sha256Digest descriptorDigest,
         Sha256Digest registryDigest,
         Sha256Digest graphDigest,
         Sha256Digest? commandProcessorCatalogDigest,
+        Sha256Digest? environmentDefinitionDigest,
         Sha256Digest expectedDigest)
     {
         WorldSessionDefinition definition = formatVersion == SupportedFormatVersion
@@ -166,12 +205,18 @@ public sealed class WorldSessionDefinition : IEquatable<WorldSessionDefinition>
             : formatVersion == SaveableFormatVersion
                 ? new(worldIdentity, branchIdentity, rulesetKey, registry, rootSeed, runtimeAlgorithms, schedulerGraph,
                     commandProcessorCatalog ?? throw new JsonException("World-session V2 command processor catalog is missing."))
+                : formatVersion == EnvironmentFormatVersion
+                    ? new(worldIdentity, branchIdentity, rulesetKey, registry, rootSeed, runtimeAlgorithms, schedulerGraph,
+                        commandProcessorCatalog ?? throw new JsonException("World-session V3 command processor catalog is missing."),
+                        environmentDefinition ?? throw new JsonException("World-session V3 environment definition is missing."))
                 : throw new JsonException($"Unsupported world-session definition format '{formatVersion}'.");
         if (definition.RulesetDescriptorDigest != descriptorDigest) throw new JsonException("World-session ruleset descriptor digest mismatch.");
         if (definition.RulesetRegistryDigest != registryDigest) throw new JsonException("World-session ruleset registry digest mismatch.");
         if (definition.SchedulerGraphDigest != graphDigest) throw new JsonException("World-session scheduler graph digest mismatch.");
-        if (formatVersion == SaveableFormatVersion && definition.CommandProcessorCatalogDigest != commandProcessorCatalogDigest)
+        if (formatVersion != SupportedFormatVersion && definition.CommandProcessorCatalogDigest != commandProcessorCatalogDigest)
             throw new JsonException("World-session command processor catalog digest mismatch.");
+        if (formatVersion == EnvironmentFormatVersion && definition.EnvironmentDefinitionDigest != environmentDefinitionDigest)
+            throw new JsonException("World-session environment definition digest mismatch.");
         return definition.Digest == expectedDigest ? definition : throw new JsonException("World-session definition digest mismatch.");
     }
 }
@@ -190,6 +235,14 @@ internal sealed class WorldSessionDefinitionJsonConverter : JsonConverter<WorldS
         "formatVersion", "worldIdentity", "branchIdentity", "rulesetKey", "rulesetDescriptorDigest",
         "rulesetRegistry", "rulesetRegistryDigest", "rootSeed", "runtimeAlgorithms", "schedulerGraph",
         "schedulerGraphDigest", "commandProcessorCatalog", "commandProcessorCatalogDigest", "digest",
+    ];
+
+    private static readonly string[] V3Properties =
+    [
+        "formatVersion", "worldIdentity", "branchIdentity", "rulesetKey", "rulesetDescriptorDigest",
+        "rulesetRegistry", "rulesetRegistryDigest", "rootSeed", "runtimeAlgorithms", "schedulerGraph",
+        "schedulerGraphDigest", "commandProcessorCatalog", "commandProcessorCatalogDigest",
+        "environmentDefinition", "environmentDefinitionDigest", "digest",
     ];
 
     public override WorldSessionDefinition Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -214,13 +267,18 @@ internal sealed class WorldSessionDefinitionJsonConverter : JsonConverter<WorldS
         }
         if (format == WorldSessionDefinition.SupportedFormatVersion) StrictModelJson.Exact(root, V1Properties);
         else if (format == WorldSessionDefinition.SaveableFormatVersion) StrictModelJson.Exact(root, V2Properties);
+        else if (format == WorldSessionDefinition.EnvironmentFormatVersion) StrictModelJson.Exact(root, V3Properties);
         else throw new JsonException($"Unsupported world-session definition format '{format}'.");
 
         try
         {
-            CommandProcessorCatalog? commandCatalog = format == WorldSessionDefinition.SaveableFormatVersion
+            CommandProcessorCatalog? commandCatalog = format != WorldSessionDefinition.SupportedFormatVersion
                 ? JsonSerializer.Deserialize<CommandProcessorCatalog>(root.GetProperty("commandProcessorCatalog"), options)
                     ?? throw new JsonException("Missing command processor catalog.")
+                : null;
+            EnvironmentDefinition? environment = format == WorldSessionDefinition.EnvironmentFormatVersion
+                ? JsonSerializer.Deserialize<EnvironmentDefinition>(root.GetProperty("environmentDefinition"), options)
+                    ?? throw new JsonException("Missing environment definition.")
                 : null;
             return WorldSessionDefinition.CreateValidated(
                 format,
@@ -232,11 +290,15 @@ internal sealed class WorldSessionDefinitionJsonConverter : JsonConverter<WorldS
                 JsonSerializer.Deserialize<AlgorithmCatalog>(root.GetProperty("runtimeAlgorithms"), options) ?? throw new JsonException("Missing runtime algorithms."),
                 JsonSerializer.Deserialize<SchedulerGraph>(root.GetProperty("schedulerGraph"), options) ?? throw new JsonException("Missing scheduler graph."),
                 commandCatalog,
+                environment,
                 Sha256Digest.Parse(root.GetProperty("rulesetDescriptorDigest").GetString()!),
                 Sha256Digest.Parse(root.GetProperty("rulesetRegistryDigest").GetString()!),
                 Sha256Digest.Parse(root.GetProperty("schedulerGraphDigest").GetString()!),
-                format == WorldSessionDefinition.SaveableFormatVersion
+                format != WorldSessionDefinition.SupportedFormatVersion
                     ? Sha256Digest.Parse(root.GetProperty("commandProcessorCatalogDigest").GetString()!)
+                    : null,
+                format == WorldSessionDefinition.EnvironmentFormatVersion
+                    ? Sha256Digest.Parse(root.GetProperty("environmentDefinitionDigest").GetString()!)
                     : null,
                 Sha256Digest.Parse(root.GetProperty("digest").GetString()!));
         }
@@ -262,10 +324,15 @@ internal sealed class WorldSessionDefinitionJsonConverter : JsonConverter<WorldS
         writer.WritePropertyName("runtimeAlgorithms"); JsonSerializer.Serialize(writer, value.RuntimeAlgorithms, options);
         writer.WritePropertyName("schedulerGraph"); JsonSerializer.Serialize(writer, value.SchedulerGraph, options);
         writer.WriteString("schedulerGraphDigest", value.SchedulerGraphDigest.ToString());
-        if (value.FormatVersion == WorldSessionDefinition.SaveableFormatVersion)
+        if (value.FormatVersion != WorldSessionDefinition.SupportedFormatVersion)
         {
             writer.WritePropertyName("commandProcessorCatalog"); JsonSerializer.Serialize(writer, value.CommandProcessorCatalog, options);
             writer.WriteString("commandProcessorCatalogDigest", value.CommandProcessorCatalogDigest!.Value.ToString());
+        }
+        if (value.FormatVersion == WorldSessionDefinition.EnvironmentFormatVersion)
+        {
+            writer.WritePropertyName("environmentDefinition"); JsonSerializer.Serialize(writer, value.EnvironmentDefinition, options);
+            writer.WriteString("environmentDefinitionDigest", value.EnvironmentDefinitionDigest!.Value.ToString());
         }
         writer.WriteString("digest", value.Digest.ToString());
         writer.WriteEndObject();

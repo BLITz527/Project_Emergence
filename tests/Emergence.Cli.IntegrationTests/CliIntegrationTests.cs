@@ -19,7 +19,7 @@ public sealed class CliIntegrationTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Product: Project Emergence", result.Output, StringComparison.Ordinal);
         Assert.Contains("Version:", result.Output, StringComparison.Ordinal);
-        Assert.Contains("Version: 0.5.0-dev", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Version: 1.1.0-dev", result.Output, StringComparison.Ordinal);
         Assert.Contains("Target framework:", result.Output, StringComparison.Ordinal);
         Assert.Contains("Runtime:", result.Output, StringComparison.Ordinal);
     }
@@ -184,7 +184,7 @@ public sealed class CliIntegrationTests
         JsonElement root = document.RootElement;
         Assert.Equal(0, result.ExitCode);
         Assert.True(root.GetProperty("success").GetBoolean());
-        Assert.Equal("0.5.0-dev", root.GetProperty("version").GetString());
+        Assert.Equal("1.1.0-dev", root.GetProperty("version").GetString());
         Assert.Equal("bbaebfc88087fc04ab024d2505b9a50ed7e7a2f21cd34a18eb4e83d56cb1a418", root.GetProperty("algorithmCatalogDigest").GetString());
         Assert.Equal("3ddcda2140c7fed29e2af548b8c71edf988c12a7f65ecdfd73d47c1bab33067a", root.GetProperty("schedulerGraphDigest").GetString());
         Assert.Equal("fcc91152d376a93f558f44c2e76eb8493ab61fb519d598faa8782992d8cd3456", root.GetProperty("sessionDefinitionDigest").GetString());
@@ -298,6 +298,49 @@ public sealed class CliIntegrationTests
         finally { Directory.Delete(directory, recursive: true); }
         Assert.Equal(2, (await Invoke("world-package", "verify")).ExitCode);
         Assert.Equal(2, (await Invoke("world-package", "recover", "x", "unexpected")).ExitCode);
+    }
+
+    [Fact]
+    public async Task EnvironmentSelfTestIsByteStableAndMatchesLockedPhase11Vectors()
+    {
+        Invocation first = await Invoke("environment-self-test");
+        Invocation second = await Invoke("environment-self-test");
+        Assert.Equal(0, first.ExitCode);
+        Assert.Equal(first.Output, second.Output);
+        JsonElement root = JsonDocument.Parse(first.Output).RootElement;
+        Assert.True(root.GetProperty("success").GetBoolean());
+        Assert.Equal("c9fa1bc20193b72fcbbc7780776018a81d599716fd6673bc71d266d416393429", root.GetProperty("fieldChannelCatalogDigest").GetString());
+        Assert.Equal("cb98e417570c1b46073170128eebfc7b5b84e38bb4a1a1eac622ceb8d1578466", root.GetProperty("environmentStateDigest").GetString());
+        Assert.Equal("a05a5eb93c9a098dc446f1315a75da1d31b118b2fbe12f203ea6a37476e1f685", root.GetProperty("packageIdentityDigest").GetString());
+        Assert.Equal(4, root.GetProperty("chunkEntries").GetArrayLength());
+        Assert.True(root.GetProperty("saveLoadMatched").GetBoolean());
+        Assert.True(root.GetProperty("oneTickEnvironmentUnchanged").GetBoolean());
+        Assert.DoesNotContain(Path.GetTempPath(), first.Output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task EnvironmentFixtureVerifyAndAuthoritativeProbeAreStrict()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "Emergence.Cli.Environment.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string package = Path.Combine(directory, "environment.emergence-world");
+        try
+        {
+            Assert.Equal(0, (await Invoke("environment-package", "fixture", package)).ExitCode);
+            Invocation verify = await Invoke("environment-package", "verify", package);
+            Assert.Equal(0, verify.ExitCode);
+            JsonElement verified = JsonDocument.Parse(verify.Output).RootElement;
+            Assert.Equal("2.0.0", verified.GetProperty("formatVersion").GetString());
+            Assert.Equal(4, verified.GetProperty("fieldChunkPaths").GetArrayLength());
+            Invocation probe = await Invoke("environment-probe", package, "00000000000000000000000000000064", "8", "6", "matter.energy-substrate");
+            Assert.Equal(0, probe.ExitCode);
+            JsonElement sample = JsonDocument.Parse(probe.Output).RootElement;
+            Assert.Equal("1410", sample.GetProperty("rawAmount").GetString());
+            Assert.Equal("1024", sample.GetProperty("effectiveVolume").GetString());
+            Assert.Equal("authoritative-cell-sample", sample.GetProperty("sampleKind").GetString());
+            Assert.Equal(2, (await Invoke("environment-probe", package, "bad", "x", "6", "matter.energy-substrate")).ExitCode);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
     }
 
     private static async Task<Invocation> Invoke(params string[] arguments)

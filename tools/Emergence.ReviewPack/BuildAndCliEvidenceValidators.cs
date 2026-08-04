@@ -57,7 +57,9 @@ public static class BuildEvidenceValidator
         {
             AssemblyInventoryEntry? entry = entries.FirstOrDefault(item => item.Assembly == assembly && item.Configuration == "Release");
             if (entry is null) { errors.Add($"Release assembly is missing from inventory: {assembly}."); continue; }
-            string expectedAssemblyVersion = expectedVersion.StartsWith("0.5.", StringComparison.Ordinal) ? "0.5.0.0" : "0.4.0.0";
+            string expectedAssemblyVersion = expectedVersion.StartsWith("1.1.", StringComparison.Ordinal)
+                ? "1.1.0.0"
+                : expectedVersion.StartsWith("0.5.", StringComparison.Ordinal) ? "0.5.0.0" : "0.4.0.0";
             if (entry.AssemblyVersion != expectedAssemblyVersion || !entry.InformationalVersion.StartsWith(expectedVersion + "+", StringComparison.Ordinal)
                 || !entry.GitCommit.Equals(expectedCommit, StringComparison.OrdinalIgnoreCase) || entry.TargetFramework != expectedFramework)
             {

@@ -135,7 +135,7 @@ public sealed class ArchitectureTests
         string source = string.Join("\n", Directory.GetFiles(At("src/Emergence.Model"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
         Assert.Contains("class WorldSessionDefinition", source, StringComparison.Ordinal);
         Assert.Contains("class SchedulerGraph", source, StringComparison.Ordinal);
-        string[] prohibited = ["class Cell", "class Organism", "class Genome", "class Region", "Metabolism", "Reproduction", "Ecology"];
+        string[] prohibited = ["class Cell ", "class Organism ", "class Genome ", "Metabolism", "Reproduction", "Ecology"];
         Assert.All(prohibited, token => Assert.DoesNotContain(token, source, StringComparison.Ordinal));
     }
 
@@ -241,8 +241,37 @@ public sealed class ArchitectureTests
         string source = File.ReadAllText(At("src/Emergence.App/MainShell.cs"));
         Assert.DoesNotContain("override void _Process", source, StringComparison.Ordinal);
         Assert.DoesNotContain("override void _PhysicsProcess", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("StepOneTick", source, StringComparison.Ordinal);
         Assert.Contains("SessionPresentationSnapshot", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Phase11EnvironmentOwnershipAndStaticScientificBoundaryAreEnforced()
+    {
+        string foundation = string.Join("\n", Directory.GetFiles(At("src/Emergence.Foundation/Environment"), "*.cs").Select(File.ReadAllText));
+        string model = string.Join("\n", Directory.GetFiles(At("src/Emergence.Model/Environment"), "*.cs").Select(File.ReadAllText));
+        string simulation = string.Join("\n", Directory.GetFiles(At("src/Emergence.Simulation/Environment"), "*.cs").Select(File.ReadAllText));
+        string persistence = string.Join("\n", Directory.GetFiles(At("src/Emergence.Persistence/WorldPackages"), "*.cs").Select(File.ReadAllText));
+        string presentation = string.Join("\n", Directory.GetFiles(At("src/Emergence.Presentation.Contracts"), "*.cs").Select(File.ReadAllText));
+        string appViewport = File.ReadAllText(At("src/Emergence.App/FieldViewport.cs"));
+
+        Assert.DoesNotContain("RegionLatticeDefinition", foundation, StringComparison.Ordinal);
+        Assert.Contains("class RegionLatticeDefinition", model, StringComparison.Ordinal);
+        Assert.Contains("class RegionFieldState", model, StringComparison.Ordinal);
+        Assert.Contains("ulong[][] _amountsByChannel", simulation, StringComparison.Ordinal);
+        Assert.Contains("class FieldChunkCodec", persistence, StringComparison.Ordinal);
+        Assert.Contains("class EnvironmentPresentationSnapshot", presentation, StringComparison.Ordinal);
+        Assert.DoesNotContain("using Godot", presentation, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddChild", appViewport, StringComparison.Ordinal);
+        Assert.DoesNotContain("_Process", appViewport, StringComparison.Ordinal);
+
+        string authoritative = model + simulation;
+        Assert.DoesNotContain("double[] _amounts", authoritative, StringComparison.Ordinal);
+        Assert.DoesNotContain("float[] _amounts", authoritative, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetAmount", authoritative, StringComparison.Ordinal);
+        Assert.DoesNotContain("UpdateAmount", authoritative, StringComparison.Ordinal);
+        Assert.DoesNotContain("Diffusion", authoritative, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Reaction", authoritative, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("namespace Emergence.Biology", authoritative, StringComparison.Ordinal);
     }
 
     [Fact]

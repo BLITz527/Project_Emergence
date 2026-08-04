@@ -58,6 +58,7 @@ internal static class FoundationJsonConverters
         options.Converters.Add(new CheckedSequenceCounterJsonConverter());
         options.Converters.Add(new CanonicalStringJsonConverter<MatterAmount>(MatterAmount.Parse));
         options.Converters.Add(new CanonicalStringJsonConverter<EnergyAmount>(EnergyAmount.Parse));
+        options.Converters.Add(new CanonicalStringJsonConverter<VolumeAmount>(VolumeAmount.Parse));
         options.Converters.Add(new CanonicalStringJsonConverter<Sha256Digest>(Sha256Digest.Parse));
         options.Converters.Add(new CanonicalStringJsonConverter<SemanticVersion>(SemanticVersion.Parse));
         options.Converters.Add(new CanonicalStringJsonConverter<AlgorithmId>(AlgorithmId.Parse));
