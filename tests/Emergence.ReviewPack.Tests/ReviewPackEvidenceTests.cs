@@ -205,6 +205,39 @@ public sealed class ReviewPackEvidenceTests
     }
 
     [Fact]
+    public void RequiredPhase11RawChunkPathIsAllowedEvidence()
+    {
+        const string path = "environment/chunks/regions/00000000000000000000000000000064/fields/0000-0000.bin";
+        Assert.False(ReviewPackFilters.IsProhibitedRelativePath(path));
+    }
+
+    [Fact]
+    public void Schema7Phase11ManifestHeaderIsAcceptedByIntegrityValidator()
+    {
+        using TemporaryDirectory fixture = new();
+        ReviewManifest manifest = CreateIntegrityManifest(fixture) with
+        {
+            SchemaVersion = 7,
+            Phase = Phase11EvidenceValidator.Phase,
+        };
+
+        VerificationResult result = ManifestIntegrityValidator.Validate(fixture.Root, manifest);
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+    }
+
+    [Fact]
+    public void MissingPhase11EnvironmentEvidenceFailsClosed()
+    {
+        using TemporaryDirectory fixture = new();
+
+        EnvironmentEvidence result = Phase11EvidenceValidator.Evaluate(fixture.Root);
+
+        Assert.Equal(EvidenceStatus.Failed, result.Status);
+        Assert.Contains("missing", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ImplementationReportContainsAllRequiredNumberedHeadings()
     {
         using TemporaryDirectory fixture = new();

@@ -6,6 +6,7 @@ using Emergence.Foundation.Hashing;
 using Emergence.Foundation.Results;
 using Emergence.Foundation.Time;
 using Emergence.Foundation.Versioning;
+using Emergence.Model.Environment;
 
 namespace Emergence.Model;
 
@@ -13,7 +14,9 @@ namespace Emergence.Model;
 public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
 {
     public const string DigestDomainMarker = "ProjectEmergence.WorldSessionSnapshot.v1";
+    public const string EnvironmentDigestDomainMarker = "ProjectEmergence.WorldSessionSnapshot.v2";
     public static SemanticVersion SupportedFormatVersion { get; } = new(1, 0, 0);
+    public static SemanticVersion EnvironmentFormatVersion { get; } = new(2, 0, 0);
     private readonly ReadOnlyCollection<AcceptedSessionCommand> _pendingCommands;
     private readonly ReadOnlyCollection<FoundationIssue> _faultIssues;
 
@@ -25,14 +28,27 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
         SequenceNumber lastEventSequence,
         IEnumerable<AcceptedSessionCommand> pendingCommands,
         IEnumerable<FoundationIssue> faultIssues,
-        Sha256Digest stateDigest)
+        Sha256Digest stateDigest,
+        WorldEnvironmentState? environmentState = null)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
-        if (definition.FormatVersion != WorldSessionDefinition.SaveableFormatVersion
-            || !definition.RuntimeAlgorithms.Equals(AlgorithmCatalog.Phase05)
-            || definition.RuntimeAlgorithms.Digest != AlgorithmCatalog.Phase05.Digest
-            || definition.CommandProcessorCatalog is null)
-            throw new ArgumentException("A snapshot requires a Phase 0.5 V2 session definition.", nameof(definition));
+        if (environmentState is null)
+        {
+            if (definition.FormatVersion != WorldSessionDefinition.SaveableFormatVersion
+                || !definition.RuntimeAlgorithms.Equals(AlgorithmCatalog.Phase05)
+                || definition.RuntimeAlgorithms.Digest != AlgorithmCatalog.Phase05.Digest
+                || definition.CommandProcessorCatalog is null)
+                throw new ArgumentException("A V1 snapshot requires a Phase 0.5 V2 session definition.", nameof(definition));
+        }
+        else if (definition.FormatVersion != WorldSessionDefinition.EnvironmentFormatVersion
+            || !definition.RuntimeAlgorithms.Equals(AlgorithmCatalog.Phase11)
+            || definition.RuntimeAlgorithms.Digest != AlgorithmCatalog.Phase11.Digest
+            || definition.CommandProcessorCatalog is null
+            || definition.EnvironmentDefinition is null
+            || !definition.EnvironmentDefinition.Equals(environmentState.Definition))
+        {
+            throw new ArgumentException("A V2 snapshot requires a matching Phase 1.1 V3 environment definition and state.", nameof(definition));
+        }
         if (status is not (WorldSessionStatus.Paused or WorldSessionStatus.Faulted))
             throw new ArgumentException("Only Paused or Faulted sessions are persistable.", nameof(status));
 
@@ -75,7 +91,8 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
             && (faults.Length == 0 || !faults.Any(static issue => issue.Severity is IssueSeverity.Error or IssueSeverity.Critical)))
             throw new ArgumentException("Faulted snapshots require at least one Error or Critical issue.", nameof(faultIssues));
 
-        FormatVersion = SupportedFormatVersion;
+        FormatVersion = environmentState is null ? SupportedFormatVersion : EnvironmentFormatVersion;
+        EnvironmentState = environmentState?.Capture();
         CurrentTick = currentTick;
         Status = status;
         LastCommandSequence = lastCommandSequence;
@@ -83,8 +100,11 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
         _pendingCommands = Array.AsReadOnly(pending);
         _faultIssues = Array.AsReadOnly(faults);
 
-        Sha256Digest computedState = WorldSessionStateFingerprint.Compute(
-            definition, currentTick, status, lastCommandSequence, lastEventSequence, _pendingCommands, _faultIssues);
+        Sha256Digest computedState = EnvironmentState is null
+            ? WorldSessionStateFingerprint.Compute(
+                definition, currentTick, status, lastCommandSequence, lastEventSequence, _pendingCommands, _faultIssues)
+            : WorldSessionStateFingerprint.ComputeEnvironment(
+                definition, currentTick, status, lastCommandSequence, lastEventSequence, _pendingCommands, _faultIssues, EnvironmentState);
         if (computedState != stateDigest) throw new ArgumentException("World-session snapshot state digest mismatch.", nameof(stateDigest));
         StateDigest = stateDigest;
         Digest = ComputeDigest();
@@ -98,6 +118,7 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
     public SequenceNumber LastEventSequence { get; }
     public IReadOnlyList<AcceptedSessionCommand> PendingCommands => _pendingCommands;
     public IReadOnlyList<FoundationIssue> FaultIssues => _faultIssues;
+    public WorldEnvironmentState? EnvironmentState { get; }
     public Sha256Digest StateDigest { get; }
     public Sha256Digest Digest { get; }
 
@@ -110,6 +131,7 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
         && LastEventSequence == other.LastEventSequence
         && PendingCommands.SequenceEqual(other.PendingCommands, AcceptedCommandValueComparer.Instance)
         && FaultIssues.SequenceEqual(other.FaultIssues)
+        && Equals(EnvironmentState, other.EnvironmentState)
         && StateDigest == other.StateDigest
         && Digest == other.Digest;
 
@@ -119,7 +141,7 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
     private Sha256Digest ComputeDigest()
     {
         using CanonicalHashWriter writer = new();
-        writer.WriteString(DigestDomainMarker);
+        writer.WriteString(FormatVersion == SupportedFormatVersion ? DigestDomainMarker : EnvironmentDigestDomainMarker);
         writer.WriteString(FormatVersion.ToString());
         writer.WriteDigest(Definition.Digest);
         writer.WriteUInt128(CurrentTick.Value);
@@ -143,6 +165,7 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
             writer.WriteString(issue.Summary);
             writer.WriteString(issue.Detail);
         }
+        if (EnvironmentState is not null) writer.WriteDigest(EnvironmentState.Digest);
         writer.WriteDigest(StateDigest);
         return writer.FinalizeDigest();
     }
@@ -164,6 +187,25 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
         return snapshot.Digest == expectedDigest ? snapshot : throw new JsonException("World-session snapshot digest mismatch.");
     }
 
+    internal static WorldSessionSnapshot CreateEnvironmentValidated(
+        SemanticVersion formatVersion,
+        WorldSessionDefinition definition,
+        SimulationTick currentTick,
+        WorldSessionStatus status,
+        SequenceNumber lastCommandSequence,
+        SequenceNumber lastEventSequence,
+        IEnumerable<AcceptedSessionCommand> pendingCommands,
+        IEnumerable<FoundationIssue> faultIssues,
+        WorldEnvironmentState environmentState,
+        Sha256Digest stateDigest,
+        Sha256Digest expectedDigest)
+    {
+        if (formatVersion != EnvironmentFormatVersion) throw new JsonException($"Unsupported environment snapshot format '{formatVersion}'.");
+        WorldSessionSnapshot snapshot = new(definition, currentTick, status, lastCommandSequence, lastEventSequence,
+            pendingCommands, faultIssues, stateDigest, environmentState);
+        return snapshot.Digest == expectedDigest ? snapshot : throw new JsonException("Environment world-session snapshot digest mismatch.");
+    }
+
     internal sealed class AcceptedCommandValueComparer : IEqualityComparer<AcceptedSessionCommand>
     {
         public static AcceptedCommandValueComparer Instance { get; } = new();
@@ -180,17 +222,34 @@ public sealed class WorldSessionSnapshot : IEquatable<WorldSessionSnapshot>
 
 internal sealed class WorldSessionSnapshotJsonConverter : JsonConverter<WorldSessionSnapshot>
 {
-    private static readonly string[] Properties =
+    private static readonly string[] V1Properties =
     [
         "formatVersion", "definition", "currentTick", "status", "lastCommandSequence", "lastEventSequence",
         "pendingCommands", "faultIssues", "stateDigest", "digest",
+    ];
+    private static readonly string[] V2Properties =
+    [
+        "formatVersion", "definition", "currentTick", "status", "lastCommandSequence", "lastEventSequence",
+        "pendingCommands", "faultIssues", "environmentStateDigest", "stateDigest", "digest",
     ];
 
     public override WorldSessionSnapshot Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using JsonDocument document = JsonDocument.ParseValue(ref reader);
         JsonElement root = document.RootElement;
-        StrictModelJson.Exact(root, Properties);
+        SemanticVersion format;
+        try { format = SemanticVersion.Parse(root.GetProperty("formatVersion").GetString()!); }
+        catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            throw new JsonException("World-session snapshot requires a valid formatVersion.", exception);
+        }
+        if (format == WorldSessionSnapshot.SupportedFormatVersion) StrictModelJson.Exact(root, V1Properties);
+        else if (format == WorldSessionSnapshot.EnvironmentFormatVersion)
+        {
+            StrictModelJson.Exact(root, V2Properties);
+            throw new JsonException("Environment snapshot hydration requires validated binary field chunks through Persistence.");
+        }
+        else throw new JsonException($"Unsupported world-session snapshot format '{format}'.");
         try
         {
             AcceptedSessionCommand[] pending = root.GetProperty("pendingCommands").EnumerateArray()
@@ -201,7 +260,7 @@ internal sealed class WorldSessionSnapshotJsonConverter : JsonConverter<WorldSes
             FoundationIssue[] faults = root.GetProperty("faultIssues").EnumerateArray()
                 .Select(item => ParseIssue(item, options)).ToArray();
             return WorldSessionSnapshot.CreateValidated(
-                SemanticVersion.Parse(root.GetProperty("formatVersion").GetString()!),
+                format,
                 JsonSerializer.Deserialize<WorldSessionDefinition>(root.GetProperty("definition"), options) ?? throw new JsonException("Missing session definition."),
                 JsonSerializer.Deserialize<SimulationTick>(root.GetProperty("currentTick"), options),
                 JsonSerializer.Deserialize<WorldSessionStatus>(root.GetProperty("status"), options),
@@ -237,6 +296,7 @@ internal sealed class WorldSessionSnapshotJsonConverter : JsonConverter<WorldSes
         writer.WriteStartArray();
         foreach (FoundationIssue issue in value.FaultIssues) WriteIssue(writer, issue, options);
         writer.WriteEndArray();
+        if (value.EnvironmentState is not null) writer.WriteString("environmentStateDigest", value.EnvironmentState.Digest.ToString());
         writer.WriteString("stateDigest", value.StateDigest.ToString());
         writer.WriteString("digest", value.Digest.ToString());
         writer.WriteEndObject();

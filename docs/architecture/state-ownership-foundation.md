@@ -10,4 +10,6 @@ Systems and command processors are stateless code dependencies, not serialized s
 
 Persistence owns filesystem/ZIP transport and recovery state, not authoritative simulation behavior. Package semantic documents remain Model values. `.writing`, `.previous`, `.lock`, and `.corrupt` are protocol sidecars. A valid target is authoritative; an invalid target is never overwritten without quarantine and a valid replacement. Candidate timestamps never confer authority.
 
-Presentation snapshots remain disposable immutable views. App owns UI state and the configured `user://saves/foundation-session.emergence-world` path only. Rendering, frame callbacks, closed-app time, failed loads, and dropped presentation snapshots cannot advance or replace authoritative session state.
+Phase 1.1 Model environment values are immutable definitions/captures. Simulation owns the only dense mutable storage object, exposes no field update API, and passes callbacks immutable captures. Persistence reconstructs all chunks before it returns a document; corrupt or incomplete input never yields a partial session.
+
+Presentation snapshots remain disposable immutable views. App owns UI state and the configured `user://saves/environment-session.emergence-world` path only. Rendering, channel selection, raw-grid toggles, frame callbacks, closed-app time, failed loads, and dropped presentation snapshots cannot advance or replace authoritative session state. Smooth pixels are interpolated display values; click probes are exact lattice samples.

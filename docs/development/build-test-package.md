@@ -18,7 +18,16 @@ Godot source checks use the 4.7 stable .NET console executable. Screenshot captu
 .\eng\capture-app-screenshot.ps1 -GodotPath $env:GODOT4
 ```
 
-`eng/package.ps1` requires matching `4.7.stable.mono` Windows x86_64 .NET export templates and copies exactly one adjacent reference ruleset. `eng/verify-package.ps1` validates the exact package inventory, source/package ruleset equivalence, required Model/Simulation/Persistence/Presentation assemblies, M0.5R identity, version/framework/commit metadata, smoke, doctor, writable save/load round trip, addressed RNG continuation, an isolated stale-lock Save/Recover probe, and absence of save sidecars after success.
+`eng/package.ps1` requires matching `4.7.stable.mono` Windows x86_64 .NET export templates and copies exactly one adjacent reference ruleset. `eng/verify-package.ps1` validates the exact package inventory, source/package ruleset equivalence, required Model/Simulation/Persistence/Presentation assemblies, Phase 1.1 identity, version/framework/commit metadata, smoke, doctor, writable V2 save/load, all field chunks, an isolated stale-lock Save/Recover probe, and absence of save sidecars after success.
+
+Phase 1.1 CLI evidence includes `environment-self-test`, `environment-performance`, `environment-package fixture|verify`, and `environment-probe`. Run the independent reference implementation with Python 3:
+
+```powershell
+python .\tools\reference\phase11_environment_vectors.py
+python .\tools\reference\phase11_environment_vectors.py --package .\artifacts\cli\environment-session.emergence-world
+```
+
+App QA captures two fresh images: normal smooth view and `--raw-grid` debug view. Neither mode advances logical time.
 
 The supported CLI package workflow is:
 

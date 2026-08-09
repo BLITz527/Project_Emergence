@@ -9,7 +9,8 @@ public static class ManifestIntegrityValidator
     {
         List<string> errors = [];
         bool supportedHeader = (manifest.SchemaVersion == 5 && manifest.Phase == Phase04EvidenceValidator.CorrectionPhase)
-            || (manifest.SchemaVersion == 6 && manifest.Phase == Phase05EvidenceValidator.Phase);
+            || (manifest.SchemaVersion == 6 && manifest.Phase == Phase05EvidenceValidator.Phase)
+            || (manifest.SchemaVersion == 7 && manifest.Phase == Phase11EvidenceValidator.Phase);
         if (!supportedHeader || string.IsNullOrWhiteSpace(manifest.Project))
         {
             errors.Add("Manifest schema header is invalid.");
@@ -136,23 +137,25 @@ public static class ReviewPackVerifier
         string reviewRoot = Path.GetDirectoryName(fullManifest)!;
         VerificationResult integrity = ManifestIntegrityValidator.Validate(reviewRoot, manifest);
         List<string> errors = [.. integrity.Errors];
-        if (manifest.SchemaVersion != 6 || manifest.Phase != Phase05EvidenceValidator.Phase)
-            errors.Add("The review pack is not a Phase 0.5R schema-6 pack.");
-        ValidateRequiredDocuments(reviewRoot, errors);
+        bool phase11 = manifest.SchemaVersion == 7 && manifest.Phase == Phase11EvidenceValidator.Phase;
+        bool phase05 = manifest.SchemaVersion == 6 && manifest.Phase == Phase05EvidenceValidator.Phase;
+        if (!phase11 && !phase05) errors.Add("The review pack is not a supported Phase 0.5R schema-6 or Phase 1.1 schema-7 pack.");
+        string expectedVersion = phase11 ? Phase11EvidenceValidator.Version : "0.5.0-dev";
+        ValidateRequiredDocuments(reviewRoot, errors, phase11);
         ValidateDesignDigest(reviewRoot, manifest, errors);
         ValidateSourceListing(reviewRoot, errors);
         ValidatePreflight(reviewRoot, manifest, errors);
         ValidateFeatureMetadata(reviewRoot, manifest, errors);
         ValidateTests(reviewRoot, manifest, errors);
 
-        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
+        BuildEvidence build = BuildEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, expectedVersion, ".NETCoreApp,Version=v10.0");
         if (!BuildEvidenceValidator.IsPassed(build) || !BuildEvidenceValidator.IsPassed(manifest.Build))
         {
             errors.Add("Build evidence is not passed with zero warnings and errors.");
         }
         if (!Equivalent(build, manifest.Build)) errors.Add("Manifest build outcomes disagree with current build evidence.");
 
-        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", ".NETCoreApp,Version=v10.0");
+        CliEvidence cli = CliEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, expectedVersion, ".NETCoreApp,Version=v10.0");
         if (!CliEvidenceValidator.IsPassed(cli) || !CliEvidenceValidator.IsPassed(manifest.Cli))
         {
             errors.Add("CLI version, doctor, Phase 0.1/0.2 self-tests, RNG self-test, ruleset validation, or session self-test evidence is not passed.");
@@ -162,12 +165,20 @@ public static class ReviewPackVerifier
         (RngEvidence rng, RulesetEvidence rulesets) = Phase03EvidenceValidator.Evaluate(reviewRoot);
         if (rng.Status != EvidenceStatus.Passed || manifest.Rng?.Status != EvidenceStatus.Passed || !Equivalent(rng, manifest.Rng)) errors.Add($"RNG evidence is not passed or disagrees with the manifest: {rng.Detail}");
         if (rulesets.Status != EvidenceStatus.Passed || manifest.Rulesets?.Status != EvidenceStatus.Passed || !Equivalent(rulesets, manifest.Rulesets)) errors.Add($"Ruleset evidence is not passed or disagrees with the manifest: {rulesets.Detail}");
-        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, "0.5.0-dev", requirePresentation: false);
+        SessionEvidence session = Phase04EvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, expectedVersion, requirePresentation: false);
         if (session.Status != EvidenceStatus.Passed || manifest.Session?.Status != EvidenceStatus.Passed || !Equivalent(session, manifest.Session)) errors.Add($"Phase 0.4R regression evidence is not passed or disagrees with the manifest: {session.Detail}");
         PersistenceEvidence persistence = Phase05EvidenceValidator.Evaluate(reviewRoot);
         if (persistence.Status != EvidenceStatus.Passed || manifest.Persistence?.Status != EvidenceStatus.Passed || !Equivalent(persistence, manifest.Persistence)) errors.Add($"Phase 0.5R persistence evidence is not passed or disagrees with the manifest: {persistence.Detail}");
+        if (phase11)
+        {
+            EnvironmentEvidence environment = Phase11EvidenceValidator.Evaluate(reviewRoot);
+            if (environment.Status != EvidenceStatus.Passed || manifest.Environment?.Status != EvidenceStatus.Passed || !Equivalent(environment, manifest.Environment))
+                errors.Add($"Phase 1.1 environment evidence is not passed or disagrees with the manifest: {environment.Detail}");
+        }
 
-        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion, "0.5.0-dev", Phase05EvidenceValidator.Phase, "FOUNDATION / M0.5R");
+        AppEvidence app = AppEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", manifest.GodotVersion,
+            expectedVersion, phase11 ? Phase11EvidenceValidator.Phase : Phase05EvidenceValidator.Phase,
+            phase11 ? Phase11EvidenceValidator.ShellMarker : "FOUNDATION / M0.5R");
         if (app.Status != EvidenceStatus.Passed || manifest.App.Status != EvidenceStatus.Passed)
         {
             errors.Add($"App evidence is not passed: {app.Detail}");
@@ -177,7 +188,8 @@ public static class ReviewPackVerifier
             errors.Add("Manifest App outcome disagrees with current App evidence.");
         }
 
-        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", "0.5.0-dev", Phase05EvidenceValidator.Phase);
+        PackageEvidence package = PackageEvidenceValidator.Evaluate(reviewRoot, manifest.GitCommit, ".NETCoreApp,Version=v10.0", expectedVersion,
+            phase11 ? Phase11EvidenceValidator.Phase : Phase05EvidenceValidator.Phase);
         if (package.Status != EvidenceStatus.Passed || manifest.Package.Status != EvidenceStatus.Passed)
         {
             errors.Add($"Package evidence is not passed: {package.Detail}");
@@ -208,6 +220,11 @@ public static class ReviewPackVerifier
 
     private static void ValidateFeatureMetadata(string reviewRoot, ReviewManifest manifest, List<string> errors)
     {
+        if (manifest.SchemaVersion == 7 && manifest.Phase == Phase11EvidenceValidator.Phase)
+        {
+            ValidatePhase11FeatureMetadata(reviewRoot, manifest, errors);
+            return;
+        }
         const string acceptedMain = "edb6f24898453841a4ecf3283bdd114ccebc2167";
         const string originalPhase05 = "244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58";
         string path = Path.Combine(reviewRoot, "git", "feature-metadata.json");
@@ -234,6 +251,31 @@ public static class ReviewPackVerifier
         catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
         {
             errors.Add($"Feature commit metadata is invalid: {exception.Message}");
+        }
+    }
+
+    private static void ValidatePhase11FeatureMetadata(string reviewRoot, ReviewManifest manifest, List<string> errors)
+    {
+        const string baseline = "6d51b8f36930600e6b5662e039f2e6a6a3d8627d";
+        string path = Path.Combine(reviewRoot, "git", "feature-metadata.json");
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+            Dictionary<string, string> values = document.RootElement.EnumerateObject()
+                .ToDictionary(property => property.Name, property => property.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
+            string[] required = ["branch", "featureCommit", "featureSubject", "featureParent", "baselineCommit", "baselineSubject", "acceptedCorrectionCommit", "originalPhase05Commit"];
+            if (!values.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(required)) errors.Add("Phase 1.1 feature metadata has missing or unexpected fields.");
+            if (values.GetValueOrDefault("branch") != "milestone-1-phase-1.1" || values.GetValueOrDefault("branch") != manifest.GitBranch) errors.Add("Phase 1.1 metadata has the wrong branch.");
+            if (!values.GetValueOrDefault("featureCommit", "").Equals(manifest.GitCommit, StringComparison.OrdinalIgnoreCase)) errors.Add("Phase 1.1 metadata does not identify the reviewed commit.");
+            if (values.GetValueOrDefault("featureSubject") != "M1 P1.1 region and environmental field lattice") errors.Add("Phase 1.1 feature commit subject is wrong.");
+            if (!values.GetValueOrDefault("featureParent", "").Equals(baseline, StringComparison.OrdinalIgnoreCase)) errors.Add("Phase 1.1 feature commit is not directly based on the accepted main baseline.");
+            if (!values.GetValueOrDefault("baselineCommit", "").Equals(baseline, StringComparison.OrdinalIgnoreCase)) errors.Add("Phase 1.1 baseline metadata is wrong.");
+            if (!values.GetValueOrDefault("acceptedCorrectionCommit", "").Equals("ba98387b4f4f1b6cb85a773e2c2beb974a464653", StringComparison.OrdinalIgnoreCase)) errors.Add("Accepted correction ancestor metadata is wrong.");
+            if (!values.GetValueOrDefault("originalPhase05Commit", "").Equals("244bb8b5f6e0e2714ce1f7dec57c5d3bcb323f58", StringComparison.OrdinalIgnoreCase)) errors.Add("Original Phase 0.5 ancestor metadata is wrong.");
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            errors.Add($"Phase 1.1 feature commit metadata is invalid: {exception.Message}");
         }
     }
 
@@ -418,7 +460,7 @@ public static class ReviewPackVerifier
         }
     }
 
-    private static void ValidateRequiredDocuments(string reviewRoot, List<string> errors)
+    private static void ValidateRequiredDocuments(string reviewRoot, List<string> errors, bool phase11)
     {
         string[] required =
         [
@@ -432,6 +474,7 @@ public static class ReviewPackVerifier
             "docs/phase-0.5-traceability.md",
             "docs/design/README.md",
         ];
+        if (phase11) required = [.. required, "docs/phase-1.1-traceability.md"];
         foreach (string relative in required)
         {
             if (!File.Exists(Path.Combine(reviewRoot, relative.Replace('/', Path.DirectorySeparatorChar))))
@@ -537,6 +580,21 @@ public static class ReviewPackVerifier
         && left.LockCheckCount == right.LockCheckCount && left.LockCheckPassed == right.LockCheckPassed
         && left.AppRoundTripValid == right.AppRoundTripValid && left.PackagedRoundTripValid == right.PackagedRoundTripValid
         && left.AppStaleLockValid == right.AppStaleLockValid && left.PackagedStaleLockValid == right.PackagedStaleLockValid
+        && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
+
+    private static bool Equivalent(EnvironmentEvidence left, EnvironmentEvidence? right) => right is not null
+        && left.Status == right.Status && left.FieldChannelCatalogDigest == right.FieldChannelCatalogDigest
+        && left.RegionDefinitionDigest == right.RegionDefinitionDigest && left.RegionStateDigest == right.RegionStateDigest
+        && left.EnvironmentDefinitionDigest == right.EnvironmentDefinitionDigest && left.EnvironmentStateDigest == right.EnvironmentStateDigest
+        && left.AlgorithmCatalogDigest == right.AlgorithmCatalogDigest && left.SessionDefinitionDigest == right.SessionDefinitionDigest
+        && left.SessionStateDigest == right.SessionStateDigest && left.SnapshotDigest == right.SnapshotDigest
+        && left.PackageIdentityDigest == right.PackageIdentityDigest && left.ManifestDigest == right.ManifestDigest
+        && left.SolidCellCount == right.SolidCellCount && left.FluidCellCount == right.FluidCellCount
+        && left.ChannelTotals.SequenceEqual(right.ChannelTotals, StringComparer.Ordinal)
+        && left.ChunkPaths.SequenceEqual(right.ChunkPaths, StringComparer.Ordinal) && left.ChunkCount == right.ChunkCount
+        && left.SaveLoadMatched == right.SaveLoadMatched && left.StaticTickMatched == right.StaticTickMatched
+        && left.IndependentReferenceMatched == right.IndependentReferenceMatched
+        && left.NormalScreenshotPresent == right.NormalScreenshotPresent && left.RawGridScreenshotPresent == right.RawGridScreenshotPresent
         && left.EvidencePaths.SequenceEqual(right.EvidencePaths, StringComparer.Ordinal);
 }
 

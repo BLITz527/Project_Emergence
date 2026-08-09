@@ -18,14 +18,22 @@ public static class WorldPackageTechnicalLimits
     public const int MaxSnapshotBytes = 50_331_648;
     public const long MaxTotalUncompressedBytes = 59_768_832;
     public const int MaxJsonDepth = 64;
+    public const long MaxEnvironmentPackageBytes = 268_435_456;
+    public const int MaxEnvironmentManifestBytes = 2_097_152;
+    public const int MaxEnvironmentDefinitionBytes = 16_777_216;
+    public const int MaxEnvironmentSnapshotBytes = 16_777_216;
+    public const int MaxFieldChunkBytes = 8_388_608;
+    public const long MaxTotalFieldChunkBytes = 201_326_592;
+    public const int MaxEnvironmentPackageEntries = 4_099;
 }
 
 public sealed class WorldPackageFileEntry : IEquatable<WorldPackageFileEntry>
 {
     public WorldPackageFileEntry(string path, ulong uncompressedByteLength, Sha256Digest sha256)
     {
-        if (path is not (WorldPackagePaths.DefinitionEntry or WorldPackagePaths.SnapshotEntry))
-            throw new ArgumentException("World package data paths must be definition.json or snapshot.json.", nameof(path));
+        if (path is not (WorldPackagePaths.DefinitionEntry or WorldPackagePaths.SnapshotEntry)
+            && !WorldPackagePaths.IsCanonicalFieldChunkPath(path))
+            throw new ArgumentException("World package data path is not canonical.", nameof(path));
         Path = path;
         UncompressedByteLength = uncompressedByteLength;
         Sha256 = sha256;
@@ -46,10 +54,14 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
 {
     public const string IdentityDigestDomainMarker = "ProjectEmergence.WorldPackageIdentity.v1";
     public const string ManifestDigestDomainMarker = "ProjectEmergence.WorldPackageManifest.v1";
+    public const string EnvironmentIdentityDigestDomainMarker = "ProjectEmergence.WorldPackageIdentity.v2";
+    public const string EnvironmentManifestDigestDomainMarker = "ProjectEmergence.WorldPackageManifest.v2";
     public static SemanticVersion SupportedFormatVersion { get; } = new(1, 0, 0);
+    public static SemanticVersion EnvironmentFormatVersion { get; } = new(2, 0, 0);
     private readonly ReadOnlyCollection<WorldPackageFileEntry> _entries;
 
     private WorldPackageManifest(
+        SemanticVersion formatVersion,
         WorldId worldId,
         BranchId branchId,
         Sha256Digest sessionDefinitionDigest,
@@ -57,21 +69,35 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
         Sha256Digest stateDigest,
         Sha256Digest rulesetRegistryDigest,
         Sha256Digest runtimeAlgorithmCatalogDigest,
+        Sha256Digest? environmentDefinitionDigest,
+        Sha256Digest? environmentStateDigest,
         IEnumerable<WorldPackageFileEntry> entries)
     {
         if (worldId.IsEmpty) throw new ArgumentException("Package world ID cannot be empty.", nameof(worldId));
         if (branchId.IsEmpty) throw new ArgumentException("Package branch ID cannot be empty.", nameof(branchId));
         ArgumentNullException.ThrowIfNull(entries);
         WorldPackageFileEntry?[] source = entries.Cast<WorldPackageFileEntry?>().ToArray();
-        if (source.Length != 2 || source.Any(static item => item is null))
-            throw new ArgumentException("A world package manifest requires exactly two data entries.", nameof(entries));
+        bool environment = formatVersion == EnvironmentFormatVersion;
+        if (formatVersion != SupportedFormatVersion && !environment)
+            throw new ArgumentException("Unsupported world package manifest format.", nameof(formatVersion));
+        if (source.Any(static item => item is null)
+            || (!environment && source.Length != 2)
+            || (environment && (source.Length < 3 || source.Length > WorldPackageTechnicalLimits.MaxEnvironmentPackageEntries - 1)))
+            throw new ArgumentException("World package manifest data-entry count is invalid.", nameof(entries));
         WorldPackageFileEntry[] copy = source.Select(static item => item!).ToArray();
         if (copy[0].Path != WorldPackagePaths.DefinitionEntry || copy[1].Path != WorldPackagePaths.SnapshotEntry)
             throw new ArgumentException("World package manifest entries must be definition.json then snapshot.json.", nameof(entries));
+        if (!environment && copy.Skip(2).Any()) throw new ArgumentException("V1 packages cannot contain field chunks.", nameof(entries));
+        if (environment && (environmentDefinitionDigest is null || environmentStateDigest is null
+            || copy.Skip(2).Any(entry => !WorldPackagePaths.IsCanonicalFieldChunkPath(entry.Path))
+            || !copy.Skip(2).Select(static entry => entry.Path).SequenceEqual(copy.Skip(2).Select(static entry => entry.Path).Order(StringComparer.Ordinal))))
+            throw new ArgumentException("V2 packages require environment digests and canonical field-chunk order.", nameof(entries));
+        if (!environment && (environmentDefinitionDigest is not null || environmentStateDigest is not null))
+            throw new ArgumentException("V1 packages cannot carry environment digests.", nameof(entries));
         if (copy.Select(static item => item.Path).Distinct(StringComparer.Ordinal).Count() != copy.Length)
             throw new ArgumentException("Duplicate world package manifest entries are not allowed.", nameof(entries));
 
-        FormatVersion = SupportedFormatVersion;
+        FormatVersion = formatVersion;
         WorldId = worldId;
         BranchId = branchId;
         SessionDefinitionDigest = sessionDefinitionDigest;
@@ -79,6 +105,8 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
         StateDigest = stateDigest;
         RulesetRegistryDigest = rulesetRegistryDigest;
         RuntimeAlgorithmCatalogDigest = runtimeAlgorithmCatalogDigest;
+        EnvironmentDefinitionDigest = environmentDefinitionDigest;
+        EnvironmentStateDigest = environmentStateDigest;
         _entries = Array.AsReadOnly(copy);
         PackageIdentityDigest = ComputePackageIdentityDigest();
         Digest = ComputeManifestDigest();
@@ -92,6 +120,8 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
     public Sha256Digest StateDigest { get; }
     public Sha256Digest RulesetRegistryDigest { get; }
     public Sha256Digest RuntimeAlgorithmCatalogDigest { get; }
+    public Sha256Digest? EnvironmentDefinitionDigest { get; }
+    public Sha256Digest? EnvironmentStateDigest { get; }
     public Sha256Digest PackageIdentityDigest { get; }
     public IReadOnlyList<WorldPackageFileEntry> Entries => _entries;
     public Sha256Digest Digest { get; }
@@ -100,6 +130,7 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         return new(
+            snapshot.EnvironmentState is null ? SupportedFormatVersion : EnvironmentFormatVersion,
             snapshot.Definition.WorldIdentity.WorldId,
             snapshot.Definition.BranchIdentity.BranchId,
             snapshot.Definition.Digest,
@@ -107,6 +138,8 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
             snapshot.StateDigest,
             snapshot.Definition.RulesetRegistryDigest,
             snapshot.Definition.RuntimeAlgorithms.Digest,
+            snapshot.Definition.EnvironmentDefinitionDigest,
+            snapshot.EnvironmentState?.Digest,
             entries);
     }
 
@@ -119,6 +152,8 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
         && StateDigest == other.StateDigest
         && RulesetRegistryDigest == other.RulesetRegistryDigest
         && RuntimeAlgorithmCatalogDigest == other.RuntimeAlgorithmCatalogDigest
+        && EnvironmentDefinitionDigest == other.EnvironmentDefinitionDigest
+        && EnvironmentStateDigest == other.EnvironmentStateDigest
         && PackageIdentityDigest == other.PackageIdentityDigest
         && Entries.SequenceEqual(other.Entries)
         && Digest == other.Digest;
@@ -128,7 +163,8 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
     private Sha256Digest ComputePackageIdentityDigest()
     {
         using CanonicalHashWriter writer = new();
-        writer.WriteString(IdentityDigestDomainMarker);
+        bool environment = FormatVersion == EnvironmentFormatVersion;
+        writer.WriteString(environment ? EnvironmentIdentityDigestDomainMarker : IdentityDigestDomainMarker);
         writer.WriteString(FormatVersion.ToString());
         writer.WriteString(WorldId.ToString());
         writer.WriteString(BranchId.ToString());
@@ -137,6 +173,11 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
         writer.WriteDigest(StateDigest);
         writer.WriteDigest(RulesetRegistryDigest);
         writer.WriteDigest(RuntimeAlgorithmCatalogDigest);
+        if (environment)
+        {
+            writer.WriteDigest(EnvironmentDefinitionDigest!.Value);
+            writer.WriteDigest(EnvironmentStateDigest!.Value);
+        }
         writer.WriteUInt64(checked((ulong)Entries.Count));
         foreach (WorldPackageFileEntry entry in Entries) writer.WriteString(entry.Path);
         return writer.FinalizeDigest();
@@ -145,7 +186,7 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
     private Sha256Digest ComputeManifestDigest()
     {
         using CanonicalHashWriter writer = new();
-        writer.WriteString(ManifestDigestDomainMarker);
+        writer.WriteString(FormatVersion == EnvironmentFormatVersion ? EnvironmentManifestDigestDomainMarker : ManifestDigestDomainMarker);
         writer.WriteString(FormatVersion.ToString());
         writer.WriteDigest(PackageIdentityDigest);
         writer.WriteUInt64(checked((ulong)Entries.Count));
@@ -172,8 +213,30 @@ public sealed class WorldPackageManifest : IEquatable<WorldPackageManifest>
         Sha256Digest digest)
     {
         if (formatVersion != SupportedFormatVersion) throw new JsonException($"Unsupported world package manifest format '{formatVersion}'.");
-        WorldPackageManifest manifest = new(worldId, branchId, sessionDefinitionDigest, snapshotDigest, stateDigest,
-            rulesetRegistryDigest, runtimeAlgorithmCatalogDigest, entries);
+        WorldPackageManifest manifest = new(formatVersion, worldId, branchId, sessionDefinitionDigest, snapshotDigest, stateDigest,
+            rulesetRegistryDigest, runtimeAlgorithmCatalogDigest, null, null, entries);
+        if (manifest.PackageIdentityDigest != packageIdentityDigest) throw new JsonException("World package identity digest mismatch.");
+        return manifest.Digest == digest ? manifest : throw new JsonException("World package manifest digest mismatch.");
+    }
+
+    internal static WorldPackageManifest CreateEnvironmentValidated(
+        SemanticVersion formatVersion,
+        WorldId worldId,
+        BranchId branchId,
+        Sha256Digest sessionDefinitionDigest,
+        Sha256Digest snapshotDigest,
+        Sha256Digest stateDigest,
+        Sha256Digest rulesetRegistryDigest,
+        Sha256Digest runtimeAlgorithmCatalogDigest,
+        Sha256Digest environmentDefinitionDigest,
+        Sha256Digest environmentStateDigest,
+        Sha256Digest packageIdentityDigest,
+        IEnumerable<WorldPackageFileEntry> entries,
+        Sha256Digest digest)
+    {
+        if (formatVersion != EnvironmentFormatVersion) throw new JsonException($"Unsupported environment package manifest format '{formatVersion}'.");
+        WorldPackageManifest manifest = new(formatVersion, worldId, branchId, sessionDefinitionDigest, snapshotDigest, stateDigest,
+            rulesetRegistryDigest, runtimeAlgorithmCatalogDigest, environmentDefinitionDigest, environmentStateDigest, entries);
         if (manifest.PackageIdentityDigest != packageIdentityDigest) throw new JsonException("World package identity digest mismatch.");
         return manifest.Digest == digest ? manifest : throw new JsonException("World package manifest digest mismatch.");
     }
@@ -197,6 +260,11 @@ public sealed class WorldPackageDocument
             || manifest.StateDigest != snapshot.StateDigest || manifest.RulesetRegistryDigest != definition.RulesetRegistryDigest
             || manifest.RuntimeAlgorithmCatalogDigest != definition.RuntimeAlgorithms.Digest)
             throw new ArgumentException("World package manifest does not match the definition and snapshot documents.", nameof(manifest));
+        if (snapshot.EnvironmentState is not null
+            && (manifest.FormatVersion != WorldPackageManifest.EnvironmentFormatVersion
+                || manifest.EnvironmentDefinitionDigest != definition.EnvironmentDefinitionDigest
+                || manifest.EnvironmentStateDigest != snapshot.EnvironmentState.Digest))
+            throw new ArgumentException("Environment package manifest does not match the definition and snapshot state.", nameof(manifest));
     }
 
     public WorldPackageManifest Manifest { get; }
@@ -227,6 +295,19 @@ internal static class WorldPackagePaths
     public const string SnapshotEntry = "snapshot.json";
     public const string ManifestEntry = "package-manifest.json";
     public static readonly string[] EntryOrder = [DefinitionEntry, SnapshotEntry, ManifestEntry];
+
+    public static bool IsCanonicalFieldChunkPath(string? path)
+    {
+        if (path is null || path.Length != 61 || !path.StartsWith("regions/", StringComparison.Ordinal)
+            || !path.AsSpan(40, 8).SequenceEqual("/fields/")) return false;
+        ReadOnlySpan<char> region = path.AsSpan(8, 32);
+        ReadOnlySpan<char> y = path.AsSpan(48, 4);
+        ReadOnlySpan<char> x = path.AsSpan(53, 4);
+        return region.IndexOfAnyExcept("0123456789abcdef") < 0
+            && y.IndexOfAnyExcept("0123456789") < 0
+            && x.IndexOfAnyExcept("0123456789") < 0
+            && path[52] == '-' && path.AsSpan(57).SequenceEqual(".bin");
+    }
 }
 
 internal static class WorldPackageJson
@@ -256,22 +337,44 @@ internal static class WorldPackageJson
 
 internal sealed class WorldPackageManifestJsonConverter : JsonConverter<WorldPackageManifest>
 {
-    private static readonly string[] Properties =
+    private static readonly string[] V1Properties =
     [
         "formatVersion", "worldId", "branchId", "sessionDefinitionDigest", "snapshotDigest", "stateDigest",
         "rulesetRegistryDigest", "runtimeAlgorithmCatalogDigest", "packageIdentityDigest", "entries", "digest",
+    ];
+    private static readonly string[] V2Properties =
+    [
+        "formatVersion", "worldId", "branchId", "sessionDefinitionDigest", "snapshotDigest", "stateDigest",
+        "rulesetRegistryDigest", "runtimeAlgorithmCatalogDigest", "environmentDefinitionDigest", "environmentStateDigest",
+        "packageIdentityDigest", "entries", "digest",
     ];
 
     public override WorldPackageManifest Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using JsonDocument document = JsonDocument.ParseValue(ref reader);
         JsonElement root = document.RootElement;
-        WorldPackageJson.Exact(root, Properties);
         try
         {
+            SemanticVersion formatVersion = SemanticVersion.Parse(root.GetProperty("formatVersion").GetString()!);
+            WorldPackageJson.Exact(root, formatVersion == WorldPackageManifest.SupportedFormatVersion ? V1Properties : V2Properties);
             WorldPackageFileEntry[] entries = root.GetProperty("entries").EnumerateArray().Select(ParseEntry).ToArray();
+            if (formatVersion == WorldPackageManifest.EnvironmentFormatVersion)
+                return WorldPackageManifest.CreateEnvironmentValidated(
+                    formatVersion,
+                    WorldId.Parse(root.GetProperty("worldId").GetString()!),
+                    BranchId.Parse(root.GetProperty("branchId").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("sessionDefinitionDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("snapshotDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("stateDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("rulesetRegistryDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("runtimeAlgorithmCatalogDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("environmentDefinitionDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("environmentStateDigest").GetString()!),
+                    Sha256Digest.Parse(root.GetProperty("packageIdentityDigest").GetString()!),
+                    entries,
+                    Sha256Digest.Parse(root.GetProperty("digest").GetString()!));
             return WorldPackageManifest.CreateValidated(
-                SemanticVersion.Parse(root.GetProperty("formatVersion").GetString()!),
+                formatVersion,
                 WorldId.Parse(root.GetProperty("worldId").GetString()!),
                 BranchId.Parse(root.GetProperty("branchId").GetString()!),
                 Sha256Digest.Parse(root.GetProperty("sessionDefinitionDigest").GetString()!),
@@ -284,7 +387,7 @@ internal sealed class WorldPackageManifestJsonConverter : JsonConverter<WorldPac
                 Sha256Digest.Parse(root.GetProperty("digest").GetString()!));
         }
         catch (JsonException) { throw; }
-        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException or OverflowException)
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidOperationException or OverflowException or KeyNotFoundException)
         {
             throw new JsonException("Invalid world package manifest.", exception);
         }
@@ -301,6 +404,11 @@ internal sealed class WorldPackageManifestJsonConverter : JsonConverter<WorldPac
         writer.WriteString("stateDigest", value.StateDigest.ToString());
         writer.WriteString("rulesetRegistryDigest", value.RulesetRegistryDigest.ToString());
         writer.WriteString("runtimeAlgorithmCatalogDigest", value.RuntimeAlgorithmCatalogDigest.ToString());
+        if (value.FormatVersion == WorldPackageManifest.EnvironmentFormatVersion)
+        {
+            writer.WriteString("environmentDefinitionDigest", value.EnvironmentDefinitionDigest!.Value.ToString());
+            writer.WriteString("environmentStateDigest", value.EnvironmentStateDigest!.Value.ToString());
+        }
         writer.WriteString("packageIdentityDigest", value.PackageIdentityDigest.ToString());
         writer.WritePropertyName("entries");
         writer.WriteStartArray();

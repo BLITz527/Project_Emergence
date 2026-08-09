@@ -45,7 +45,15 @@ public sealed class Phase05CaptureRestoreTests
 
         WorldSession paused = TickTwoSession();
         before = paused.StateDigest.ToString();
-        OperationResult<WorldSessionSnapshot> wrongThread = await Task.Run(paused.CaptureSnapshot);
+        TaskCompletionSource<OperationResult<WorldSessionSnapshot>> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Thread thread = new(() =>
+        {
+            try { completion.SetResult(paused.CaptureSnapshot()); }
+            catch (Exception exception) { completion.SetException(exception); }
+        });
+        thread.Start();
+        OperationResult<WorldSessionSnapshot> wrongThread = await completion.Task;
+        thread.Join();
         Assert.False(wrongThread.Success);
         Assert.Equal(before, paused.StateDigest.ToString());
     }

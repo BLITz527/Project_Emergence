@@ -1,6 +1,6 @@
 # Project Emergence
 
-Project Emergence is in **Milestone 0, Phase 0.5R**. The nonbiological foundation supports coherent Paused/Faulted session snapshots, strict V2 session definitions, atomic `.emergence-world` save/load packages, deterministic recovery, and exact continuation of logical time, counters, pending commands, fault state, ruleset/algorithm identity, and addressed RNG inputs. Phase 0.5R hardens the package lock as a crash-recoverable exclusive operating-system handle lease without changing package semantics or deterministic vectors.
+Project Emergence is in **Milestone 1, Phase 1.1**. The runtime now owns one static, nonbiological 16×12 environmental region with three exact conserved-material fields, real zero-volume solid boundaries, deterministic probes and conservation audits, smooth Godot visualization, and complete V2 environment packages. All accepted Milestone 0 session, RNG, V1-package, recovery, and crash-recoverable lock vectors remain regression contracts.
 
 ## Requirements
 
@@ -20,26 +20,31 @@ The immutable authoritative design archive is under `docs/design/v1.0/` with SHA
 .\eng\doctor.ps1
 ```
 
-All prior CLI evidence remains. `persistence-self-test` includes deterministic stale-lock Save/Recover, active-contention, post-release reacquisition, and clean-sidecar checks; `world-package fixture|verify|recover` retains the Phase 0.5 package contract.
+All prior CLI evidence remains. Phase 1.1 adds deterministic environment vectors, an independently reproducible field-chunk format, authoritative probes, V2 fixtures, and informational dense-storage/performance evidence.
 
 ```powershell
 dotnet run --project .\src\Emergence.Cli -- persistence-self-test
 dotnet run --project .\src\Emergence.Cli -- world-package fixture .\foundation-session.emergence-world
 dotnet run --project .\src\Emergence.Cli -- world-package verify .\foundation-session.emergence-world
 dotnet run --project .\src\Emergence.Cli -- world-package recover .\foundation-session.emergence-world
+dotnet run --project .\src\Emergence.Cli -- environment-self-test
+dotnet run --project .\src\Emergence.Cli -- environment-package fixture .\environment-session.emergence-world
+dotnet run --project .\src\Emergence.Cli -- environment-package verify .\environment-session.emergence-world
+dotnet run --project .\src\Emergence.Cli -- environment-probe .\environment-session.emergence-world 00000000000000000000000000000064 8 6 matter.energy-substrate
+dotnet run --project .\src\Emergence.Cli -- environment-performance
 ```
 
-With `$env:GODOT4` set to the Godot 4.7 .NET console executable, use `eng/verify-app.ps1`, `eng/capture-app-screenshot.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. The shell displays `FOUNDATION / M0.5R`, saves to `user://saves/foundation-session.emergence-world`, and never advances simulation in a frame callback or while closed.
+With `$env:GODOT4` set to the Godot 4.7 stable .NET console executable, use `eng/verify-app.ps1`, `eng/capture-app-screenshot.ps1`, `eng/package.ps1`, and `eng/verify-package.ps1`. Normal view presents a smooth interpolated surface with no grid; the optional `DEBUG / AUTHORITATIVE SAMPLES` overlay reveals exact cell boundaries. Click probes are exact, channel selection is presentation-only, saves use `user://saves/environment-session.emergence-world`, and no frame callback advances simulation.
 
 The `.lock` path is only a rendezvous. Live exclusive OS-handle ownership is authoritative; an ordinary stale lock file is immediately reacquirable without age, timestamp, PID, or metadata decisions. Active contention fails closed with no package/sidecar mutation. Lease cleanup is ownership-safe, and a fully promoted and validated package remains committed if cleanup reports a nonfatal warning.
 
 ## Repository map
 
 - `src/Emergence.Foundation` - primitives, strict UTF-8, canonical hashing, addressed RNG, rulesets, diagnostics, and catalogs
-- `src/Emergence.Model` - immutable session definitions, snapshots, scheduler, commands, events, and receipts
-- `src/Emergence.Simulation` - single-owner session execution, coherent capture, compatibility, and restore
-- `src/Emergence.Persistence` - bounded ruleset loading and strict atomic world packages
-- `src/Emergence.Presentation.Contracts` - immutable non-Godot presentation DTOs
+- `src/Emergence.Model` - immutable session/environment definitions and coherent snapshots
+- `src/Emergence.Simulation` - single-owner session execution and dense authoritative field arrays
+- `src/Emergence.Persistence` - bounded ruleset loading, exact field chunks, and strict V1/V2 atomic world packages
+- `src/Emergence.Presentation.Contracts` - immutable non-Godot session and field-surface DTOs
 - `src/Emergence.Cli` - headless evidence and package commands
 - `src/Emergence.App` - Godot presentation/save-load host
 - `tests` - eight focused test projects

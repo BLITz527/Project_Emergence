@@ -1,5 +1,7 @@
 # Milestone 0
 
+Status: accepted baseline completed through Phase 0.5R. Milestone 1 work preserves every locked vector and package V1 behavior below.
+
 ## Phase 0.1 / 0.1R - accepted baseline
 
 Repository/toolchain, diagnostics, Godot shell, packaging, tests, imported design baseline, and hardened review evidence.

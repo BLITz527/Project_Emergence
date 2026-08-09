@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using Emergence.Foundation.Hashing;
 using Emergence.Model;
+using Emergence.Model.Environment;
 
 namespace Emergence.Persistence.WorldPackages;
 
@@ -144,14 +145,22 @@ public sealed class WorldPackageWriter
             FileOptions.SequentialScan | FileOptions.WriteThrough);
         using (ZipArchive archive = new(file, ZipArchiveMode.Create, leaveOpen: true))
         {
-            WriteEntry(archive, WorldPackagePaths.DefinitionEntry, content.DefinitionBytes, WorldPackageFaultPoint.DuringDefinitionEntryWrite);
-            WriteEntry(archive, WorldPackagePaths.SnapshotEntry, content.SnapshotBytes, WorldPackageFaultPoint.DuringSnapshotEntryWrite);
+            foreach (PackageDataEntry entry in content.DataEntries)
+            {
+                WorldPackageFaultPoint? fault = entry.Path switch
+                {
+                    WorldPackagePaths.DefinitionEntry => WorldPackageFaultPoint.DuringDefinitionEntryWrite,
+                    WorldPackagePaths.SnapshotEntry => WorldPackageFaultPoint.DuringSnapshotEntryWrite,
+                    _ => null,
+                };
+                WriteEntry(archive, entry.Path, entry.Bytes, fault);
+            }
             Hit(WorldPackageFaultPoint.BeforeManifestWrite);
             WriteEntry(archive, WorldPackagePaths.ManifestEntry, content.ManifestBytes, null);
         }
         file.Flush(flushToDisk: true);
-        if (file.Length > WorldPackageTechnicalLimits.MaxPackageBytes)
-            throw new InvalidDataException($"Staging package exceeds {WorldPackageTechnicalLimits.MaxPackageBytes} bytes.");
+        if (file.Length > content.MaxPackageBytes)
+            throw new InvalidDataException($"Staging package exceeds {content.MaxPackageBytes} bytes.");
     }
 
     private void WriteEntry(ZipArchive archive, string name, byte[] bytes, WorldPackageFaultPoint? faultPoint)
@@ -212,25 +221,28 @@ public sealed class WorldPackageWriter
     {
         private PackageContent(
             WorldSessionSnapshot snapshot,
-            byte[] definitionBytes,
-            byte[] snapshotBytes,
+            IReadOnlyList<PackageDataEntry> dataEntries,
             WorldPackageManifest manifest,
-            byte[] manifestBytes)
+            byte[] manifestBytes,
+            long maxPackageBytes)
         {
             Snapshot = snapshot;
-            DefinitionBytes = definitionBytes;
-            SnapshotBytes = snapshotBytes;
+            DataEntries = dataEntries;
             Manifest = manifest;
             ManifestBytes = manifestBytes;
+            MaxPackageBytes = maxPackageBytes;
         }
 
         public WorldSessionSnapshot Snapshot { get; }
-        public byte[] DefinitionBytes { get; }
-        public byte[] SnapshotBytes { get; }
+        public IReadOnlyList<PackageDataEntry> DataEntries { get; }
         public WorldPackageManifest Manifest { get; }
         public byte[] ManifestBytes { get; }
+        public long MaxPackageBytes { get; }
 
         public static PackageContent Create(WorldSessionSnapshot snapshot)
+            => snapshot.EnvironmentState is null ? CreateV1(snapshot) : CreateV2(snapshot);
+
+        private static PackageContent CreateV1(WorldSessionSnapshot snapshot)
         {
             byte[] definition = WorldPackageJson.SerializeCompact(snapshot.Definition);
             byte[] snapshotBytes = WorldPackageJson.SerializeCompact(snapshot);
@@ -250,9 +262,72 @@ public sealed class WorldPackageWriter
             long total = checked((long)definition.Length + snapshotBytes.Length + manifestBytes.Length);
             if (total > WorldPackageTechnicalLimits.MaxTotalUncompressedBytes)
                 throw new ArgumentException("Total uncompressed package content exceeds its technical limit.", nameof(snapshot));
-            return new(snapshot, definition, snapshotBytes, manifest, manifestBytes);
+            return new(snapshot,
+                Array.AsReadOnly(new[]
+                {
+                    new PackageDataEntry(WorldPackagePaths.DefinitionEntry, definition),
+                    new PackageDataEntry(WorldPackagePaths.SnapshotEntry, snapshotBytes),
+                }),
+                manifest, manifestBytes, WorldPackageTechnicalLimits.MaxPackageBytes);
+        }
+
+        private static PackageContent CreateV2(WorldSessionSnapshot snapshot)
+        {
+            if (snapshot.FormatVersion != WorldSessionSnapshot.EnvironmentFormatVersion
+                || snapshot.Definition.FormatVersion != WorldSessionDefinition.EnvironmentFormatVersion
+                || snapshot.EnvironmentState is null)
+                throw new ArgumentException("Environment package requires a coherent V3 definition and V2 snapshot.", nameof(snapshot));
+            byte[] definition = WorldPackageJson.SerializeCompact(snapshot.Definition);
+            if (definition.Length > WorldPackageTechnicalLimits.MaxEnvironmentDefinitionBytes)
+                throw new ArgumentException("Environment definition JSON exceeds its technical limit.", nameof(snapshot));
+
+            List<PackageDataEntry> chunks = [];
+            List<EnvironmentFieldChunkDescriptor> descriptors = [];
+            long totalChunkBytes = 0;
+            foreach (RegionFieldState region in snapshot.EnvironmentState.Regions.OrderBy(static region => region.RegionId))
+            for (uint chunkY = 0; chunkY < region.Definition.ChunkRows; chunkY++)
+            for (uint chunkX = 0; chunkX < region.Definition.ChunkColumns; chunkX++)
+            {
+                FieldChunkCoordinate coordinate = new(chunkX, chunkY);
+                byte[] bytes = FieldChunkCodec.Encode(region, coordinate);
+                totalChunkBytes = checked(totalChunkBytes + bytes.Length);
+                if (totalChunkBytes > WorldPackageTechnicalLimits.MaxTotalFieldChunkBytes)
+                    throw new ArgumentException("Total field chunk bytes exceed their technical limit.", nameof(snapshot));
+                string path = FieldChunkCodec.GetPath(region.Definition, coordinate);
+                (uint _, uint _, uint width, uint height) = region.Definition.GetChunkBounds(coordinate);
+                Sha256Digest hash = Sha256Digest.Compute(bytes);
+                chunks.Add(new(path, bytes));
+                descriptors.Add(new(path, region.RegionId, coordinate, width, height, checked((ulong)bytes.Length), hash));
+            }
+
+            byte[] snapshotBytes = EnvironmentSnapshotPackageJson.Serialize(snapshot, descriptors);
+            if (snapshotBytes.Length > WorldPackageTechnicalLimits.MaxEnvironmentSnapshotBytes)
+                throw new ArgumentException("Environment snapshot JSON exceeds its technical limit.", nameof(snapshot));
+            List<PackageDataEntry> data =
+            [
+                new(WorldPackagePaths.DefinitionEntry, definition),
+                new(WorldPackagePaths.SnapshotEntry, snapshotBytes),
+                .. chunks,
+            ];
+            if (data.Count + 1 > WorldPackageTechnicalLimits.MaxEnvironmentPackageEntries)
+                throw new ArgumentException("Environment package entry count exceeds its technical limit.", nameof(snapshot));
+            WorldPackageFileEntry[] entries = data.Select(static entry => new WorldPackageFileEntry(
+                entry.Path, checked((ulong)entry.Bytes.Length), Sha256Digest.Compute(entry.Bytes))).ToArray();
+            WorldPackageManifest manifest = WorldPackageManifest.Create(snapshot, entries);
+            byte[] manifestBytes = WorldPackageJson.SerializeCompact(manifest);
+            if (manifestBytes.Length > WorldPackageTechnicalLimits.MaxEnvironmentManifestBytes)
+                throw new ArgumentException("Environment package manifest JSON exceeds its technical limit.", nameof(snapshot));
+            long total = checked((long)definition.Length + snapshotBytes.Length + totalChunkBytes + manifestBytes.Length);
+            long maximumTotal = checked((long)WorldPackageTechnicalLimits.MaxEnvironmentDefinitionBytes
+                + WorldPackageTechnicalLimits.MaxEnvironmentSnapshotBytes
+                + WorldPackageTechnicalLimits.MaxTotalFieldChunkBytes
+                + WorldPackageTechnicalLimits.MaxEnvironmentManifestBytes);
+            if (total > maximumTotal) throw new ArgumentException("Total environment package content exceeds its technical limit.", nameof(snapshot));
+            return new(snapshot, Array.AsReadOnly(data.ToArray()), manifest, manifestBytes, WorldPackageTechnicalLimits.MaxEnvironmentPackageBytes);
         }
     }
+
+    private sealed record PackageDataEntry(string Path, byte[] Bytes);
 }
 
 internal enum WorldPackageFaultPoint

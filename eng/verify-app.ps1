@@ -27,5 +27,5 @@ $project = Join-Path $root 'src\Emergence.App'
 Invoke-LoggedCommand (Join-Path $output 'load.log') { & $godot --headless --editor --path $project --quit }
 Invoke-LoggedCommand (Join-Path $output 'smoke.log') { & $godot --headless --path $project -- --smoke-exit }
 Invoke-LoggedCommand (Join-Path $output 'doctor.log') { & $godot --headless --path $project -- --doctor-json (Join-Path $output 'doctor.json') }
-'PASSED: headless project load, main-scene smoke, and App diagnostics exited 0. Normal-window and screenshot evidence are recorded separately when available.' |
+'PASSED: Phase 1.1 headless project load, main-scene smoke, environment field diagnostics, V2 save/load, chunks, and static-tick checks exited 0. Normal/raw-grid screenshots are recorded separately.' |
     Out-File -FilePath $statusPath -Encoding utf8

@@ -29,12 +29,22 @@ public static class SessionCompatibilityValidator
         }
 
         WorldSessionDefinition definition = snapshot.Definition;
-        if (snapshot.FormatVersion != WorldSessionSnapshot.SupportedFormatVersion)
-            issues.Add(Issue("compatibility.snapshot-format", "Unsupported snapshot format", snapshot.FormatVersion.ToString()));
-        if (definition.FormatVersion != WorldSessionDefinition.SaveableFormatVersion)
-            issues.Add(Issue("compatibility.definition-format", "Unsupported definition format", definition.FormatVersion.ToString()));
-        if (!definition.RuntimeAlgorithms.Equals(AlgorithmCatalog.Phase05)
-            || definition.RuntimeAlgorithms.Digest != AlgorithmCatalog.Phase05.Digest)
+        bool foundation = snapshot.FormatVersion == WorldSessionSnapshot.SupportedFormatVersion
+            && definition.FormatVersion == WorldSessionDefinition.SaveableFormatVersion
+            && snapshot.EnvironmentState is null;
+        bool environment = snapshot.FormatVersion == WorldSessionSnapshot.EnvironmentFormatVersion
+            && definition.FormatVersion == WorldSessionDefinition.EnvironmentFormatVersion
+            && snapshot.EnvironmentState is not null
+            && definition.EnvironmentDefinition is not null
+            && definition.EnvironmentDefinition.Equals(snapshot.EnvironmentState.Definition)
+            && definition.EnvironmentDefinitionDigest == snapshot.EnvironmentState.Definition.Digest;
+        if (!foundation && !environment)
+        {
+            issues.Add(Issue("compatibility.snapshot-format", "Unsupported snapshot/definition format pairing", $"snapshot={snapshot.FormatVersion};definition={definition.FormatVersion}"));
+        }
+        AlgorithmCatalog expectedAlgorithms = environment ? AlgorithmCatalog.Phase11 : AlgorithmCatalog.Phase05;
+        if (!definition.RuntimeAlgorithms.Equals(expectedAlgorithms)
+            || definition.RuntimeAlgorithms.Digest != expectedAlgorithms.Digest)
             issues.Add(Issue("compatibility.algorithms", "Runtime algorithm mismatch", definition.RuntimeAlgorithms.Digest.ToString()));
         if (definition.CommandProcessorCatalog is null || !definition.CommandProcessorCatalog.Equals(commandProcessors.Catalog))
             issues.Add(Issue("compatibility.command-catalog", "Command processor catalog mismatch", commandProcessors.Catalog.Digest.ToString()));

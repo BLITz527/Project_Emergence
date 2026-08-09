@@ -1,14 +1,14 @@
 # Known issues
 
-- The physical scale of one matter or energy quantum remains undefined pending a later versioned numeric/ruleset decision.
-- Algorithm catalogs record one active version per algorithm ID. Compatibility ranges and migrations are deferred.
-- Rulesets are immutable and non-executable; inheritance, includes, hot reload, downloads, and migrations are absent.
-- Addressed RNG has no hidden cursor, but callers remain responsible for stable domain/scope/sample-index assignment.
-- The session retains only the latest bounded tick receipt. Event history is not persisted and saves cannot replay it.
-- V1 session definitions remain a regression format. V2 is the first saveable format; no automatic or user-authored migration exists.
-- Save/load supports one foundation package path in the App. Autosave, multiple slots, world browsing, cloud sync, branching, and rollback are deferred.
-- Recovery is explicit and deterministic. When no valid candidate exists it preserves evidence and fails rather than guessing.
-- A regular `.lock` file may remain after an abrupt process or cleanup failure, but it is harmless rendezvous state: the next Save or Recover reacquires it once no live exclusive handle owns it. Lock metadata is diagnostic and is never trusted.
-- The package is a complete foundation-session snapshot, not the future large-world incremental/chunk persistence architecture.
-- No biological runtime or biological save payload exists in Phase 0.5R.
+- The physical scale of one matter, energy, or volume quantum remains undefined pending a later versioned ruleset decision.
+- Phase 1.1 fields are intentionally static. Diffusion, flow/advection, and reactions begin no earlier than Phase 1.2.
+- Concentration is an exact amount/volume relationship but its human-facing unit and formatting policy remain provisional.
+- Only one region and the locked rectangular topology are supported. Connected regions and geographic transitions are deferred.
+- Normal visualization is interpolated presentation data. Only click probes and the raw-grid overlay identify authoritative cell samples.
+- The session retains only the latest bounded tick receipt. Event-history persistence and replay remain deferred.
+- V1/V2 session definitions and V1 packages remain regression formats. V3/V2 environment formats have no migration path, and no format is silently upgraded.
+- Save/load uses one App path. Autosave, multiple slots, browsing, cloud sync, branching, rollback, and encryption are deferred.
+- Recovery fails closed rather than guessing. A stale ordinary `.lock` file is harmless rendezvous state once no process owns its exclusive handle.
+- The environment package is a complete static snapshot, not the future incremental large-world persistence architecture.
+- No biological runtime, biological DTO, or biological save payload exists in Phase 1.1.
 - The authoritative Version 1.0 design archive remains immutable; its raw external ZIP stays ignored.
